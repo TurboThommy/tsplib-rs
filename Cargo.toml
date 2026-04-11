@@ -1,0 +1,3 @@
+[workspace]
+members = ["crates/tsplib-core", "crates/tsplib-dev-runner", "crates/tsplib-parser"]
+resolver = "3"
