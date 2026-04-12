@@ -9,7 +9,14 @@ version = "0.1.0"
 [[package]]
 name = "tsplib-dev-runner"
 version = "0.1.0"
+dependencies = [
+ "tsplib-core",
+ "tsplib-parser",
+]
 
 [[package]]
 name = "tsplib-parser"
 version = "0.1.0"
+dependencies = [
+ "tsplib-core",
+]

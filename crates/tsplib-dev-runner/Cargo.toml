@@ -4,3 +4,5 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
+tsplib-core = { path = "../tsplib-core" }
+tsplib-parser = { path = "../tsplib-parser" }
