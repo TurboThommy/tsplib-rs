@@ -34,7 +34,11 @@ pub fn parse_tsp_file(file_path: &str) -> TSPInstance {
     let mut state = ParserState::Header;
     let mut curr_lines: Vec<&str> = Vec::new();
 
-    for line in file_content.lines() {
+    for line in file_content
+        .lines()
+        .map(|l| l.trim())
+        .filter(|l| !l.is_empty())
+    {
         match state {
             ParserState::Header => {
                 if line.contains(':') {
@@ -124,9 +128,7 @@ pub fn parse_tsp_file(file_path: &str) -> TSPInstance {
                 } else if line.contains("SECTION") {
                     state = match line.trim() {
                         "NODE_COORD_SECTION" => {
-                            ParserState::Section(DataSectionType::NodeCoordSection(
-                                node_coord_type.clone().unwrap_or(NodeCoordType::NoCoords),
-                            ))
+                            ParserState::Section(DataSectionType::NodeCoordSection)
                         }
                         "FIXED_EDGES_SECTION" => {
                             ParserState::Section(DataSectionType::FixedEdgesSection)
@@ -156,9 +158,7 @@ pub fn parse_tsp_file(file_path: &str) -> TSPInstance {
 
                     state = match line {
                         "NODE_COORD_SECTION" => {
-                            ParserState::Section(DataSectionType::NodeCoordSection(
-                                node_coord_type.clone().unwrap_or(NodeCoordType::NoCoords),
-                            ))
+                            ParserState::Section(DataSectionType::NodeCoordSection)
                         }
                         "FIXED_EDGES_SECTION" => {
                             ParserState::Section(DataSectionType::FixedEdgesSection)
@@ -196,7 +196,7 @@ pub fn parse_tsp_file(file_path: &str) -> TSPInstance {
 
 fn to_data_section(section_type: &DataSectionType, lines: Vec<&str>) -> DataSection {
     match section_type {
-        DataSectionType::NodeCoordSection(_) => {
+        DataSectionType::NodeCoordSection => {
             match lines
                 .first()
                 .expect("NODE_COORD_SECTION cannot be empty")
@@ -277,7 +277,6 @@ fn to_data_section(section_type: &DataSectionType, lines: Vec<&str>) -> DataSect
             DataSection::DisplayDataSection(display_data)
         }
         DataSectionType::EdgeWeightSection => {
-            // read all lines, split by whitespace, parse as f64 and collect into a flat vector
             let edge_weights = lines
                 .into_iter()
                 .map(|line| {

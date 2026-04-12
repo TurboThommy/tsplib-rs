@@ -23,8 +23,5 @@ fn main() {
         .collect::<Vec<_>>();
 
     println!("Parsed {} instances", instances.len());
-    instances
-        .iter()
-        .filter(|i| i.name == "usa13509")
-        .for_each(|i| println!("{}\n", i));
+    instances.iter().for_each(|i| println!("{}\n", i));
 }

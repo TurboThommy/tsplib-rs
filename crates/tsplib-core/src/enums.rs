@@ -222,7 +222,7 @@ impl fmt::Display for DisplayDataType {
 
 pub enum DataSectionType {
     // NODE_COORD_SECTION
-    NodeCoordSection(NodeCoordType),
+    NodeCoordSection,
 
     // FIXED_EDGES_SECTION,
     FixedEdgesSection,
@@ -249,7 +249,7 @@ pub enum DataSectionType {
 impl fmt::Display for DataSectionType {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let s = match self {
-            DataSectionType::NodeCoordSection(_) => "NODE_COORD_SECTION",
+            DataSectionType::NodeCoordSection => "NODE_COORD_SECTION",
             DataSectionType::FixedEdgesSection => "FIXED_EDGES_SECTION",
             DataSectionType::DisplayDataSection => "DISPLAY_DATA_SECTION",
             DataSectionType::EdgeWeightSection => "EDGE_WEIGHT_SECTION",
@@ -292,6 +292,7 @@ pub enum DataSection {
     EdgeDataSection,
 }
 
+// TODO: add termination sequences for sections that require them (e.g. -1)
 impl fmt::Display for DataSection {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let s = match self {
