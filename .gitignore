@@ -1,1 +1,8 @@
+// Ignore the target directory, which contains build artifacts and should not be included in version control.
 /target
+
+// Ignore the Cargo.lock file, which is generated automatically by Cargo and should not be included in version control for libraries.
+/Cargo.lock
+
+
+personal_notes.md

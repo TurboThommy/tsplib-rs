@@ -7,7 +7,7 @@ use tsplib_core::{
     models::TSPInstance,
 };
 
-// Internal struct to hold the parsed specification/header fields while parsing the file
+/// Internal struct to hold the parsed specification/header fields while parsing the file
 struct SpecificationPart {
     name: Option<String>,
     problem_type: Option<ProblemType>,
@@ -38,13 +38,24 @@ impl SpecificationPart {
     }
 }
 
-// Internal parser state
+/// Internal parser state
 enum ParserState {
+    /// The parser is currently parsing the header/specification part of the file, which consists of key-value pairs until the first section header is encountered.
     Header,
+    /// The parser is currently parsing a data section, which consists of lines of data until the next section header or the end of the file is encountered.
+    /// The specific type of data section being parsed is indicated by the associated `DataSectionType` value.
     Section(DataSectionType),
 }
 
 impl ParserState {
+    /// Helper function to transition to a new section based on the section header line.
+    ///
+    /// # Arguments:
+    /// * `self` - The current parser state, which will be updated to the new section if the line is a valid section header.
+    /// * `line` - The line containing the section header.
+    ///
+    /// # Panics
+    /// * If the line does not correspond to a known section header, the function will panic with an error message indicating the unknown section type.
     fn new_section_from_line(&mut self, line: &str) {
         *self = match line.trim() {
             "NODE_COORD_SECTION" => ParserState::Section(DataSectionType::NodeCoordSection),
@@ -55,6 +66,15 @@ impl ParserState {
         };
     }
 
+    /// Helper function to transition to a new section based on the section header line, with error handling.
+    ///
+    /// # Arguments:
+    /// * `self` - The current parser state, which will be updated to the new section if the line is a valid section header.
+    /// * `line` - The line containing the section header.
+    ///
+    /// # Returns
+    /// * `Ok(())` if the line corresponds to a known section header and the parser state was successfully updated.
+    /// * `Err(ParseError::UnknownSectionType)` if the line does not correspond to a known section header, with the error containing the unknown section type.
     fn try_new_section_from_line(&mut self, line: &str) -> Result<(), ParseError> {
         *self = match line.trim() {
             "NODE_COORD_SECTION" => Ok(ParserState::Section(DataSectionType::NodeCoordSection)),
@@ -67,19 +87,34 @@ impl ParserState {
     }
 }
 
-// Main parsing function that takes the content of a TSP file as a string and returns a TSPInstance
+/// Main parsing function that takes the content of a TSP file as a string and returns a TSPInstance.
+/// For parsing the function uses a state machine approach, where it remains parsing key-value pairs for the header part of the file until it encounters the first section header.
+/// When a section header is encountered, it transitions to parsing the corresponding data section until it encounters the next section header or the end of the file, at which point it transitions back to parsing the header or finishes parsing, respectively.
+/// Once the first section header is encountered, the remaining lines are considered part of the data part of the file.
+///
+/// # Arguments
+/// * `file_content` - A string containing the content of the TSP file to be parsed.
+///
+/// # Returns
+/// * `TSPInstance` - The parsed TSP instance containing the specification and data sections from the file.
+///
+/// # Panics
+/// * If the file content is not in the expected format, the function may panic with an error message indicating the specific issue encountered during parsing, such as invalid line formats, unknown header fields, or missing required fields.
 pub fn parse(file_content: String) -> TSPInstance {
     let mut specification = SpecificationPart::new();
     let mut data_sections: Vec<DataSection> = Vec::new();
     let mut state = ParserState::Header;
     let mut curr_lines: Vec<&str> = Vec::new();
 
+    // Iterate through each line of the file content, trimming whitespace and filtering out empty lines
     for line in file_content
         .lines()
         .map(|l| l.trim())
         .filter(|l| !l.is_empty())
     {
+        // state machine to parse the file content based on the current parser state
         match state {
+            // parse each line as key-value pair or transition to new state if a section header is encountered
             ParserState::Header => {
                 if line.contains(':') {
                     let parts = line.split(':').map(|s| s.trim()).collect::<Vec<_>>();
@@ -94,13 +129,17 @@ pub fn parse(file_content: String) -> TSPInstance {
                     panic!("Invalid line in header: {}", line);
                 }
             }
+
+            // parse each line as part of the current data section, or transition to new section state if a new section header is encountered or the end of the file is reached
             ParserState::Section(ref section_type) => {
+                // end of section or file reached, save the parsed data section
                 if line == "EOF" || line == "-1" {
                     data_sections.push(to_data_section(section_type, curr_lines));
                     curr_lines = Vec::new();
                     continue;
                 }
 
+                // new section encountered, save the parsed data section and transition to the new section state
                 if line.contains("SECTION") {
                     data_sections.push(to_data_section(section_type, curr_lines));
                     curr_lines = Vec::new();
@@ -108,26 +147,44 @@ pub fn parse(file_content: String) -> TSPInstance {
                     continue;
                 }
 
+                // line is part of the current data section, add it to the current lines buffer
                 curr_lines.push(line);
             }
         }
     }
 
+    // After parsing all lines, create the TSPInstance from the parsed specification and data sections
     create_tsp_instance(specification, data_sections)
 }
 
+/// Main parsing function that takes the content of a TSP file as a string and returns a TSPInstance.
+/// For parsing the function uses a state machine approach, where it remains parsing key-value pairs for the header part of the file until it encounters the first section header.
+/// When a section header is encountered, it transitions to parsing the corresponding data section until it encounters the next section header or the end of the file, at which point it transitions back to parsing the header or finishes parsing, respectively.
+/// Once the first section header is encountered, the remaining lines are considered part of the data part of the file.
+///
+/// # Arguments
+/// * `file_content` - A string containing the content of the TSP file to be parsed.
+///
+/// # Returns
+/// * `Result<TSPInstance, ParseError>` - The parsed TSP instance containing the specification and data sections from the file, or an error if parsing fails.
+///
+/// # Errors
+/// * `Err(ParseError)` - An error indicating the specific issue encountered during parsing, such as invalid line formats, unknown header fields, missing required fields, or unknown section types.
 pub fn try_parse(file_content: String) -> Result<TSPInstance, ParseError> {
     let mut specification = SpecificationPart::new();
     let mut data_sections: Vec<DataSection> = Vec::new();
     let mut state = ParserState::Header;
     let mut curr_lines: Vec<&str> = Vec::new();
 
+    // Iterate through each line of the file content, trimming whitespace and filtering out empty lines
     for line in file_content
         .lines()
         .map(|l| l.trim())
         .filter(|l| !l.is_empty())
     {
+        // state machine to parse the file content based on the current parser state
         match state {
+            // parse each line as key-value pair or transition to new state if a section header is encountered
             ParserState::Header => {
                 if line.contains(':') {
                     let parts = line.split(':').map(|s| s.trim()).collect::<Vec<_>>();
@@ -142,13 +199,17 @@ pub fn try_parse(file_content: String) -> Result<TSPInstance, ParseError> {
                     Err(ParseError::EmptyLineInHeader)?;
                 }
             }
+
+            // parse each line as part of the current data section, or transition to new section state if a new section header is encountered or the end of the file is reached
             ParserState::Section(ref section_type) => {
+                // end of section or file reached, save the parsed data section
                 if line == "EOF" || line == "-1" {
                     data_sections.push(try_to_data_section(section_type, curr_lines)?);
                     curr_lines = Vec::new();
                     continue;
                 }
 
+                // new section encountered, save the parsed data section and transition to the new section state
                 if line.contains("SECTION") {
                     data_sections.push(try_to_data_section(section_type, curr_lines)?);
                     curr_lines = Vec::new();
@@ -156,20 +217,37 @@ pub fn try_parse(file_content: String) -> Result<TSPInstance, ParseError> {
                     continue;
                 }
 
+                // line is part of the current data section, add it to the current lines buffer
                 curr_lines.push(line);
             }
         }
     }
 
+    // After parsing all lines, create the TSPInstance from the parsed specification and data sections
     try_create_tsp_instance(specification, data_sections)
 }
 
+// -----------------------------------------------------------------------------------------------------------------------------------------------
 // Helper functions to create TSPInstance from the parsed specification and data sections, and to parse individual header fields and data sections
+// -----------------------------------------------------------------------------------------------------------------------------------------------
+
+/// Helper function to create a TSPInstance from the parsed specification and data sections.
+///
+/// # Arguments
+/// * `specification` - The parsed specification/header fields from the TSP file, containing optional values for each field.
+/// * `data_sections` - The parsed data sections from the TSP file, containing the specific data for each section.
+///
+/// # Returns
+/// * `TSPInstance` - The created TSP instance containing the specification and data sections from the file.
+///
+/// # Panics
+/// * If any of the required fields in the specification are missing (i.e., `name`, `problem_type`, `dimension`, or `edge_weight_type`), the function will panic with an error message indicating the missing field.
 fn create_tsp_instance(
     specification: SpecificationPart,
     data_sections: Vec<DataSection>,
 ) -> TSPInstance {
     tsplib_core::models::TSPInstance {
+        // required fields, panics if any of these are missing from the specification
         name: specification.name.expect("Missing required field: NAME"),
         problem_type: specification
             .problem_type
@@ -180,7 +258,9 @@ fn create_tsp_instance(
         edge_weight_type: specification
             .edge_weight_type
             .expect("Missing required field: EDGE_WEIGHT_TYPE"),
-        comment: Some(specification.comment),
+
+        // optional fields
+        comment: Some(specification.comment), // comment is optional, but we still want to include it in the TSPInstance, so we wrap it in Some() even if it's empty
         capacity: specification.capacity,
         edge_weight_format: specification.edge_weight_format,
         edge_data_format: specification.edge_data_format,
@@ -190,11 +270,24 @@ fn create_tsp_instance(
     }
 }
 
+/// Helper function to create a TSPInstance from the parsed specification and data sections.
+///
+/// # Arguments
+/// * `specification` - The parsed specification/header fields from the TSP file, containing optional values for each field.
+/// * `data_sections` - The parsed data sections from the TSP file, containing the specific data for each section.
+///
+/// # Returns
+/// * `Result<TSPInstance, ParseError>` - The created TSP instance containing the specification and data sections from the file, or an error if any required fields are missing.
+///
+/// # Errors
+/// * `Err(ParseError::MissingRequiredField)` - An error indicating that a required field is missing from the specification, with the error containing the name of the missing field.
+/// * `Err(ParseError::_)` - An error indicating any other issue encountered during the creation of the TSPInstance, with the error containing details about the specific issue.
 fn try_create_tsp_instance(
     specification: SpecificationPart,
     data_sections: Vec<DataSection>,
 ) -> Result<TSPInstance, ParseError> {
     let tsp_instance = tsplib_core::models::TSPInstance {
+        // required fields, returns an error if any of these are missing from the specification
         name: specification
             .name
             .ok_or_else(|| ParseError::MissingRequiredField("NAME".to_string()))?,
@@ -207,7 +300,9 @@ fn try_create_tsp_instance(
         edge_weight_type: specification
             .edge_weight_type
             .ok_or_else(|| ParseError::MissingRequiredField("EDGE_WEIGHT_TYPE".to_string()))?,
-        comment: Some(specification.comment),
+
+        // optional fields
+        comment: Some(specification.comment), // comment is optional, but we still want to include it in the TSPInstance, so we wrap it in Some() even if it's empty
         capacity: specification.capacity,
         edge_weight_format: specification.edge_weight_format,
         edge_data_format: specification.edge_data_format,
@@ -218,7 +313,19 @@ fn try_create_tsp_instance(
     Ok(tsp_instance)
 }
 
-// Helper functions to parse individual header fields
+// -----------------------------------------------------------------------------------------------------------------------------------------------
+// Helper functions to parse specification fields, with both panicking and error-handling versions for each field
+// -----------------------------------------------------------------------------------------------------------------------------------------------
+
+/// Helper functions to parse individual header fields.
+/// Each function takes the value of the header field as a string and updates the corresponding field in the `SpecificationPart` struct.
+///
+/// # Arguments
+/// * `key` - The key of the header field being parsed, used to determine which field in the `SpecificationPart` struct to update.
+/// * `value` - The value of the header field being parsed, which will be parsed and assigned to the corresponding field in the `SpecificationPart` struct.
+///
+/// # Panics
+/// * If the key does not correspond to a known header field, the function will panic with an error message indicating the unknown header field.
 fn parse_header_line(key: &str, value: &str, specification: &mut SpecificationPart) {
     match key {
         "NAME" => specification.name = Some(value.to_string()),
@@ -245,6 +352,19 @@ fn parse_header_line(key: &str, value: &str, specification: &mut SpecificationPa
     }
 }
 
+/// Helper functions to parse individual header fields.
+/// Each function takes the value of the header field as a string and updates the corresponding field in the `SpecificationPart` struct.
+///
+/// # Arguments
+/// * `key` - The key of the header field being parsed, used to determine which field in the `SpecificationPart` struct to update.
+/// * `value` - The value of the header field being parsed, which will be parsed and assigned to the corresponding field in the `SpecificationPart` struct.
+///
+/// # Returns
+/// * `Result<(), ParseError>` - `Ok(())` if the header field was successfully parsed and assigned to the corresponding field in the `SpecificationPart` struct, or an error if the key does not correspond to a known header field or if the value cannot be parsed for the specific field.
+///
+/// Errors
+/// * `Err(ParseError::UnknownHeaderField)` - An error indicating that the key does not correspond to a known header field, with the error containing the unknown header field key.
+/// * `Err(ParseError::_)` - An error indicating any other issue encountered during the parsing of the header field, with the error containing details about the specific issue (e.g., invalid value format for a specific field).
 fn try_parse_header_line(
     key: &str,
     value: &str,
@@ -276,11 +396,32 @@ fn try_parse_header_line(
     }
 }
 
+/// Helper function to parse the NAME header field, which simply assigns the value to the `name` field in the `SpecificationPart` struct.
+///
+/// # Arguments
+/// * `value` - The value of the NAME header field, which will be assigned to the `name` field in the `SpecificationPart` struct.
+/// * `name` - A mutable reference to the `name` field in the `SpecificationPart` struct, which will be updated with the parsed value.
+///
+/// # Returns
+/// * `Ok(())` if the value was successfully assigned to the `name` field in the `SpecificationPart` struct.
+///
+/// # Errors
+/// * For now this function does not return any errors, but in the future it could be extended to return an error if the value is empty or does not meet certain criteria for a valid name.
 fn try_parse_name(value: &str, name: &mut Option<String>) -> Result<(), ParseError> {
     *name = Some(value.to_string());
     Ok(())
 }
 
+/// Helper function to parse the TYPE header field, which maps the string value to the corresponding `ProblemType` enum variant.
+///
+/// # Arguments
+/// * `value` - The value of the TYPE header field, which will be parsed.
+///
+/// # Returns
+/// * `Some(ProblemType)` if the value corresponds to a known problem type and was successfully parsed.
+///
+/// # Panics
+/// * If the value does not correspond to a known problem type, the function will panic with an error message indicating the unknown problem type.
 fn parse_problem_type(value: &str) -> Option<ProblemType> {
     match value {
         "TSP" => Some(ProblemType::TSP),
@@ -293,6 +434,17 @@ fn parse_problem_type(value: &str) -> Option<ProblemType> {
     }
 }
 
+/// Helper function to parse the TYPE header field, which maps the string value to the corresponding `ProblemType` enum variant and assigns it to the `problem_type` field in the `SpecificationPart` struct.
+///
+/// # Arguments
+/// * `value` - The value of the TYPE header field, which will be parsed and assigned to the `problem_type` field in the `SpecificationPart` struct.
+/// * `problem_type` - A mutable reference to the `problem_type` field in the `SpecificationPart` struct, which will be updated with the parsed value if it corresponds to a known problem type.
+///
+/// # Returns
+/// * `Result<(), ParseError>` if the value was successfully parsed and assigned to the `problem_type` field in the `SpecificationPart` struct, or an error if the value cannot be parsed.
+///
+/// Errors
+/// * `Err(ParseError::UnknownProblemType)` - An error indicating that the value does not correspond to a known problem type, with the error containing the unknown problem type value.
 fn try_parse_problem_type(
     value: &str,
     problem_type: &mut Option<ProblemType>,
@@ -310,10 +462,31 @@ fn try_parse_problem_type(
     Ok(())
 }
 
+/// Helper function to parse the DIMENSION header field, which simply parses the value as a usize.
+///
+/// # Arguments
+/// * `value` - The value of the DIMENSION header field, which will be parsed as a usize.
+///
+/// # Returns
+/// * `Some(usize)` if the value was successfully parsed as a usize.
+///
+/// # Panics
+/// * If the value cannot be parsed as a usize, the function will panic with an error message indicating the invalid dimension value.
 fn parse_dimension(value: &str) -> Option<usize> {
     Some(value.parse().expect("Invalid dimension value"))
 }
 
+/// Helper function to parse the DIMENSION header field, which simply parses the value as a usize and assigns it to the `dimension` field in the `SpecificationPart` struct.
+///
+/// # Arguments
+/// * `value` - The value of the DIMENSION header field, which will be parsed as a usize and assigned to the `dimension` field in the `SpecificationPart` struct.
+/// * `dimension` - A mutable reference to the `dimension` field in the `SpecificationPart` struct, which will be updated with the parsed value if it can be successfully parsed as a usize.
+///
+/// # Returns
+/// * `Result<(), ParseError>` if the value was successfully parsed as a usize and assigned to the `dimension` field in the `SpecificationPart` struct, or an error if the value cannot be parsed as a usize.
+///
+/// # Errors
+/// * `Err(ParseError::InvalidDimensionValue)` - An error indicating that the value cannot be parsed as a usize, with the error containing the invalid dimension value.
 fn try_parse_dimension(value: &str, dimension: &mut Option<usize>) -> Result<(), ParseError> {
     *dimension = Some(
         value
@@ -323,6 +496,16 @@ fn try_parse_dimension(value: &str, dimension: &mut Option<usize>) -> Result<(),
     Ok(())
 }
 
+/// Helper function to parse the EDGE_WEIGHT_TYPE header field, which maps the string value to the corresponding `EdgeWeightType` enum variant.
+///
+/// # Arguments
+/// * `value` - The value of the EDGE_WEIGHT_TYPE header field, which will be parsed.
+///
+/// # Returns
+/// * `Some(EdgeWeightType)` if the value corresponds to a known edge weight type and was successfully parsed.
+///
+/// # Panics
+/// * If the value does not correspond to a known edge weight type, the function will panic with an error message indicating the unknown edge weight type.
 fn parse_edge_weight_type(value: &str) -> Option<EdgeWeightType> {
     match value {
         "EXPLICIT" => Some(EdgeWeightType::Explicit),
@@ -342,6 +525,17 @@ fn parse_edge_weight_type(value: &str) -> Option<EdgeWeightType> {
     }
 }
 
+/// Helper function to parse the EDGE_WEIGHT_TYPE header field, which maps the string value to the corresponding `EdgeWeightType` enum variant and assigns it to the `edge_weight_type` field in the `SpecificationPart` struct.
+///
+/// # Arguments
+/// * `value` - The value of the EDGE_WEIGHT_TYPE header field, which will be parsed and assigned to the `edge_weight_type` field in the `SpecificationPart` struct.
+/// * `edge_weight_type` - A mutable reference to the `edge_weight_type` field in the `SpecificationPart` struct, which will be updated with the parsed value if it corresponds to a known edge weight type.
+///
+/// # Returns
+/// * `Result<(), ParseError>` if the value was successfully parsed and assigned to the `edge_weight_type` field in the `SpecificationPart` struct, or an error if the value cannot be parsed.
+///
+/// Errors
+/// * `Err(ParseError::UnknownEdgeWeightType)` - An error indicating that the value does not correspond to a known edge weight type, with the error containing the unknown edge weight type value.
 fn try_parse_edge_weight_type(
     value: &str,
     edge_weight_type: &mut Option<EdgeWeightType>,
@@ -366,10 +560,31 @@ fn try_parse_edge_weight_type(
     Ok(())
 }
 
+/// Helper function to parse the CAPACITY header field, which simply parses the value as a usize.
+///
+/// # Arguments
+/// * `value` - The value of the CAPACITY header field, which will be parsed as a usize.
+///
+/// # Returns
+/// * `Some(usize)` if the value was successfully parsed as a usize.
+///
+/// # Panics
+/// * If the value cannot be parsed as a usize, the function will panic with an error message indicating the invalid capacity value.
 fn parse_capacity(value: &str) -> Option<usize> {
     Some(value.parse().expect("Invalid capacity value"))
 }
 
+/// Helper function to parse the CAPACITY header field, which simply parses the value as a usize and assigns it to the `capacity` field in the `SpecificationPart` struct.
+///
+/// # Arguments
+/// * `value` - The value of the CAPACITY header field, which will be parsed as a usize and assigned to the `capacity` field in the `SpecificationPart` struct.
+/// * `capacity` - A mutable reference to the `capacity` field in the `SpecificationPart` struct, which will be updated with the parsed value if it can be successfully parsed as a usize.
+///
+/// # Returns
+/// * `Result<(), ParseError>` if the value was successfully parsed as a usize and assigned to the `capacity` field in the `SpecificationPart` struct, or an error if the value cannot be parsed as a usize.
+///
+/// Errors
+/// * `Err(ParseError::InvalidCapacityValue)` - An error indicating that the value cannot be parsed as a usize, with the error containing the invalid capacity value.
 fn try_parse_capacity(value: &str, capacity: &mut Option<usize>) -> Result<(), ParseError> {
     *capacity = Some(
         value
@@ -379,6 +594,16 @@ fn try_parse_capacity(value: &str, capacity: &mut Option<usize>) -> Result<(), P
     Ok(())
 }
 
+/// Helper function to parse the EDGE_WEIGHT_FORMAT header field, which maps the string value to the corresponding `EdgeWeightFormat` enum variant.
+///
+/// # Arguments
+/// * `value` - The value of the EDGE_WEIGHT_FORMAT header field, which will be parsed.
+///
+/// # Returns
+/// * `Some(EdgeWeightFormat)` if the value corresponds to a known edge weight format and was successfully parsed.
+///
+/// # Panics
+/// * If the value does not correspond to a known edge weight format, the function will panic with an error message indicating the unknown edge weight format.
 fn parse_edge_weight_format(value: &str) -> Option<EdgeWeightFormat> {
     match value {
         "FUNCTION" => Some(EdgeWeightFormat::Function),
@@ -395,6 +620,17 @@ fn parse_edge_weight_format(value: &str) -> Option<EdgeWeightFormat> {
     }
 }
 
+/// Helper function to parse the EDGE_WEIGHT_FORMAT header field, which maps the string value to the corresponding `EdgeWeightFormat` enum variant and assigns it to the `edge_weight_format` field in the `SpecificationPart` struct.
+///
+/// # Arguments
+/// * `value` - The value of the EDGE_WEIGHT_FORMAT header field, which will be parsed and assigned to the `edge_weight_format` field in the `SpecificationPart` struct.
+/// * `edge_weight_format` - A mutable reference to the `edge_weight_format` field in the `SpecificationPart` struct, which will be updated with the parsed value if it corresponds to a known edge weight format.
+///
+/// # Returns
+/// * `Result<(), ParseError>` if the value was successfully parsed and assigned to the `edge_weight_format` field in the `SpecificationPart` struct, or an error if the value cannot be parsed.
+///
+/// # Errors
+/// * `Err(ParseError::UnknownEdgeWeightFormat)` - An error indicating that the value does not correspond to a known edge weight format, with the error containing the unknown edge weight format value
 fn try_parse_edge_weight_format(
     value: &str,
     edge_weight_format: &mut Option<EdgeWeightFormat>,
@@ -416,6 +652,16 @@ fn try_parse_edge_weight_format(
     Ok(())
 }
 
+/// Helper function to parse the EDGE_DATA_FORMAT header field, which maps the string value to the corresponding `EdgeDataFormat` enum variant.
+///
+/// # Arguments
+/// * `value` - The value of the EDGE_DATA_FORMAT header field, which will be parsed.
+///
+/// # Returns
+/// * `Some(EdgeDataFormat)` if the value corresponds to a known edge data format and was successfully parsed.
+///
+/// # Panics
+/// * If the value does not correspond to a known edge data format, the function will panic with an error message indicating the unknown edge data format.
 fn parse_edge_data_format(value: &str) -> Option<EdgeDataFormat> {
     match value {
         "EDGE_LIST" => Some(EdgeDataFormat::EdgeList),
@@ -424,6 +670,17 @@ fn parse_edge_data_format(value: &str) -> Option<EdgeDataFormat> {
     }
 }
 
+/// Helper function to parse the EDGE_DATA_FORMAT header field, which maps the string value to the corresponding `EdgeDataFormat` enum variant and assigns it to the `edge_data_format` field in the `SpecificationPart` struct.
+///
+/// # Arguments
+/// * `value` - The value of the EDGE_DATA_FORMAT header field, which will be parsed and assigned to the `edge_data_format` field in the `SpecificationPart` struct.
+/// * `edge_data_format` - A mutable reference to the `edge_data_format` field in the `SpecificationPart` struct, which will be updated with the parsed value if it corresponds to a known edge data format.
+///
+/// # Returns
+/// * `Result<(), ParseError>` if the value was successfully parsed and assigned to the `edge_data_format` field in the `SpecificationPart` struct, or an error if the value cannot be parsed.
+///
+/// # Errors
+/// * `Err(ParseError::UnknownEdgeDataFormat)` - An error indicating that the value does not correspond to a known edge data format, with the error containing the unknown edge data format value.
 fn try_parse_edge_data_format(
     value: &str,
     edge_data_format: &mut Option<EdgeDataFormat>,
@@ -437,6 +694,16 @@ fn try_parse_edge_data_format(
     Ok(())
 }
 
+/// Helper function to parse the NODE_COORD_TYPE header field, which maps the string value to the corresponding `NodeCoordType` enum variant.
+///
+/// # Arguments
+/// * `value` - The value of the NODE_COORD_TYPE header field, which will be parsed.
+///
+/// # Returns
+/// * `Some(NodeCoordType)` if the value corresponds to a known node coordinate type and was successfully parsed.
+///
+/// # Panics
+/// * If the value does not correspond to a known node coordinate type, the function will panic with an error message indicating the unknown node coordinate type.
 fn parse_node_coord_type(value: &str) -> Option<NodeCoordType> {
     match value {
         "TWOD_COORDS" => Some(NodeCoordType::TwoDCoords),
@@ -446,6 +713,17 @@ fn parse_node_coord_type(value: &str) -> Option<NodeCoordType> {
     }
 }
 
+/// Helper function to parse the NODE_COORD_TYPE header field, which maps the string value to the corresponding `NodeCoordType` enum variant and assigns it to the `node_coord_type` field in the `SpecificationPart` struct.
+///
+/// # Arguments
+/// * `value` - The value of the NODE_COORD_TYPE header field, which will be parsed and assigned to the `node_coord_type` field in the `SpecificationPart` struct.
+/// * `node_coord_type` - A mutable reference to the `node_coord_type` field in the `SpecificationPart` struct, which will be updated with the parsed value if it corresponds to a known node coordinate type.
+///
+/// # Returns
+/// * `Result<(), ParseError>` if the value was successfully parsed and assigned to the `node_coord_type` field in the `SpecificationPart` struct, or an error if the value cannot be parsed.
+///
+/// # Errors
+/// * `Err(ParseError::UnknownNodeCoordType)` - An error indicating that the value does not correspond to a known node coordinate type, with the error containing the unknown node coordinate type value.
 fn try_parse_node_coord_type(
     value: &str,
     node_coord_type: &mut Option<NodeCoordType>,
@@ -460,6 +738,16 @@ fn try_parse_node_coord_type(
     Ok(())
 }
 
+/// Helper function to parse the DISPLAY_DATA_TYPE header field, which maps the string value to the corresponding `DisplayDataType` enum variant.
+///
+/// # Arguments
+/// * `value` - The value of the DISPLAY_DATA_TYPE header field, which will be parsed.
+///
+/// # Returns
+/// * `Some(DisplayDataType)` if the value corresponds to a known display data type and was successfully parsed.
+///
+/// # Panics
+/// * If the value does not correspond to a known display data type, the function will panic with an error message indicating the unknown display data type.
 fn parse_display_data_type(value: &str) -> Option<DisplayDataType> {
     match value {
         "COORD_DISPLAY" => Some(DisplayDataType::CoordDisplay),
@@ -469,6 +757,16 @@ fn parse_display_data_type(value: &str) -> Option<DisplayDataType> {
     }
 }
 
+/// Helper function to parse the DISPLAY_DATA_TYPE header field, which maps the string value to the corresponding `DisplayDataType` enum variant and assigns it to the `display_data_type` field in the `SpecificationPart` struct.
+///
+/// # Arguments
+/// * `value` - The value of the DISPLAY_DATA_TYPE header field, which will be parsed and assigned to the `display_data_type` field in the `SpecificationPart` struct.
+/// * `display_data_type` - A mutable reference to the `display_data_type` field in the `SpecificationPart` struct, which will be updated with the parsed value if it corresponds to a known display data type.
+/// # Returns
+/// * `Result<(), ParseError>` if the value was successfully parsed and assigned to the `display_data_type` field in the `SpecificationPart` struct, or an error if the value cannot be parsed.
+///
+/// # Errors
+/// * `Err(ParseError::UnknownDisplayDataType)` - An error indicating that the value does not correspond to a known display data type, with the error containing the unknown display data type value.
 fn try_parse_display_data_type(
     value: &str,
     display_data_type: &mut Option<DisplayDataType>,
@@ -483,7 +781,23 @@ fn try_parse_display_data_type(
     Ok(())
 }
 
-// Helper functions to parse individual data sections
+// -----------------------------------------------------------------------------------------------------------------------------------------------
+// Helper functions to parse individual data sections, with both panicking and error-handling versions for each field
+// -----------------------------------------------------------------------------------------------------------------------------------------------
+
+/// Helper function to parse a data section based on its type, which dispatches to the appropriate parsing function for that section type.
+///
+/// # Arguments
+/// * `section_type` - The type of the data section being parsed, which determines which parsing function will be called to parse the lines of the section.
+/// * `lines` - The lines of the data section being parsed, which will be passed to the appropriate parsing function based on the section type.
+///
+/// # Returns
+/// * `DataSection` - The parsed data section, containing the specific data for that section type.
+///
+/// # Panics
+/// * If the section type does not correspond to a known data section type, the function will panic with an error message indicating the unknown data section type.
+/// * If the lines of the data section do not conform to the expected format for that section type, the function will panic with an error message indicating the specific issue with the line format.
+/// * If the section type does not correspond to a known data section type for which parsing is implemented, the function will panic with an error message indicating that parsing for that section type is not implemented.
 fn to_data_section(section_type: &DataSectionType, lines: Vec<&str>) -> DataSection {
     match section_type {
         // example given in the tsplib repository
@@ -500,6 +814,19 @@ fn to_data_section(section_type: &DataSectionType, lines: Vec<&str>) -> DataSect
     }
 }
 
+/// Helper function to parse a data section based on its type, which dispatches to the appropriate parsing function for that section type.
+///
+/// # Arguments
+/// * `section_type` - The type of the data section being parsed, which determines which parsing function will be called to parse the lines of the section.
+/// * `lines` - The lines of the data section being parsed, which will be passed to the appropriate parsing function based on the section type.
+///
+/// # Returns
+/// * `Result<DataSection, ParseError>` - The parsed data section, or an error if parsing fails.
+///
+/// Errors
+/// * `Err(ParseError::UnknownDataSectionType)` - An error indicating that the section type does not correspond to a known data section type, with the error containing the unknown data section type.
+/// * `Err(ParseError::_LineFormat)` - An error indicating that the lines of the data section do not conform to the expected format for that section type, with the error containing details about the specific issue with the line format.
+/// * `Err(ParseError::UnimplementedSectionType)` - An error indicating that the section type does not correspond to a known data section type for which parsing is implemented, with the error containing the unimplemented section type.
 fn try_to_data_section(
     section_type: &DataSectionType,
     lines: Vec<&str>,
@@ -512,15 +839,40 @@ fn try_to_data_section(
         DataSectionType::EdgeWeightSection => try_parse_edge_weight_section(lines)?,
 
         // other section types for which no examples exist in the tsplib repository
-        DataSectionType::TourSection => unimplemented!(),
-        DataSectionType::DepotSection => unimplemented!(),
-        DataSectionType::DemandSection => unimplemented!(),
-        DataSectionType::EdgeDataSection => unimplemented!(),
+        DataSectionType::TourSection => {
+            return Err(ParseError::UnimplementedSectionType("TOUR_SECTION".into()));
+        }
+        DataSectionType::DepotSection => {
+            return Err(ParseError::UnimplementedSectionType("DEPOT_SECTION".into()));
+        }
+        DataSectionType::DemandSection => {
+            return Err(ParseError::UnimplementedSectionType(
+                "DEMAND_SECTION".into(),
+            ));
+        }
+        DataSectionType::EdgeDataSection => {
+            return Err(ParseError::UnimplementedSectionType(
+                "EDGE_DATA_SECTION".into(),
+            ));
+        }
     };
     Ok(data_section)
 }
 
+/// Helper function to parse the NODE_COORD_SECTION data section, which determines whether the coordinates are 2D or 3D based on the number of values in the first line and dispatches to the appropriate parsing function for that coordinate type.
+///
+/// # Arguments
+/// * `lines` - The lines of the NODE_COORD_SECTION data section being parsed, which will be analyzed to determine whether the coordinates are 2D or 3D and then passed to the appropriate parsing function for that coordinate type.
+///
+/// # Returns
+/// * `DataSection` - The parsed NODE_COORD_SECTION data section, containing either 2D or 3D coordinates based on the format of the lines.
+///
+/// # Panics
+/// * If the first line of the NODE_COORD_SECTION is empty, the function will panic with an error message indicating that the section cannot be empty.
+/// * If the first line of the NODE_COORD_SECTION does not contain either 3 or 4 values, the function will panic with an error message indicating the invalid line format in the NODE_COORD_SECTION.
 fn parse_node_coord_section(lines: Vec<&str>) -> DataSection {
+    // determine whether the coordinates are 2D or 3D based on the number of values in the first line
+    // this will fail if there is a mix of 2D and 3D coordinates, but such a format is not valid according to the TSPLIB specification
     match lines
         .first()
         .expect("NODE_COORD_SECTION cannot be empty")
@@ -533,6 +885,17 @@ fn parse_node_coord_section(lines: Vec<&str>) -> DataSection {
     }
 }
 
+/// Helper function to parse the NODE_COORD_SECTION data section, which determines whether the coordinates are 2D or 3D based on the number of values in the first line and dispatches to the appropriate parsing function for that coordinate type.
+///
+/// # Arguments
+/// * `lines` - The lines of the NODE_COORD_SECTION data section being parsed, which will be analyzed to determine whether the coordinates are 2D or 3D and then passed to the appropriate parsing function for that coordinate type.
+///
+/// # Returns
+/// * `Result<DataSection, ParseError>` - The parsed NODE_COORD_SECTION data section, containing either 2D or 3D coordinates based on the format of the lines, or an error if parsing fails.
+///
+/// # Errors
+/// * `Err(ParseError::InvalidLineFormat)` - An error indicating that the first line of the NODE_COORD_SECTION is empty, with the error containing a message that the section cannot be empty.
+/// * `Err(ParseError::InvalidNodeCoordLineFormat)` - An error indicating that the first line of the NODE_COORD_SECTION does not contain either 3 or 4 values, with the error containing the invalid line format in the NODE_COORD_SECTION.
 fn try_parse_node_coord_section(lines: Vec<&str>) -> Result<DataSection, ParseError> {
     let first_line = lines.first().ok_or_else(|| {
         ParseError::InvalidLineFormat("NODE_COORD_SECTION cannot be empty".to_string())
@@ -546,6 +909,17 @@ fn try_parse_node_coord_section(lines: Vec<&str>) -> Result<DataSection, ParseEr
     }
 }
 
+/// Helper function to parse the NODE_COORD_SECTION data section when the coordinates are in 2D format, which expects each line to contain a node index followed by x and y coordinates, and collects these into a vector of tuples.
+///
+/// # Arguments
+/// * `lines` - The lines of the NODE_COORD_SECTION data section being parsed, which are expected to contain 2D coordinates in the format of a node index followed by x and y coordinates.
+///
+/// # Returns
+/// * `DataSection` - The parsed NODE_COORD_SECTION data section, containing a vector of tuples with node indices and their corresponding x and y coordinates.
+///
+/// # Panics
+/// * If any line in the NODE_COORD_SECTION does not contain exactly 3 values, the function will panic with an error message indicating the invalid line format in the NODE_COORD_SECTION.
+/// * If any of the values in the lines cannot be parsed as the expected types (node index as usize, x and y coordinates as f64), the function will panic with an error message indicating the specific issue.
 fn parse_node_coord_section_2d(lines: Vec<&str>) -> DataSection {
     let coords = lines
         .into_iter()
@@ -565,6 +939,18 @@ fn parse_node_coord_section_2d(lines: Vec<&str>) -> DataSection {
     DataSection::NodeCoordSection2D(coords)
 }
 
+/// Helper function to parse the NODE_COORD_SECTION data section when the coordinates are in 2D format, which expects each line to contain a node index followed by x and y coordinates, and collects these into a vector of tuples.
+///
+/// # Arguments
+/// * `lines` - The lines of the NODE_COORD_SECTION data section being parsed, which are expected to contain 2D coordinates in the format of a node index followed by x and y coordinates.
+///
+/// # Returns
+/// * `Result<DataSection, ParseError>` - The parsed NODE_COORD_SECTION data section, containing a vector of tuples with node indices and their corresponding x and y coordinates, or an error if parsing fails.
+///
+/// # Errors
+/// * `Err(ParseError::InvalidNodeCoordLineFormat)` if any line in the NODE_COORD_SECTION does not contain exactly 3 values, with the error containing the invalid line format in the NODE_COORD_SECTION.
+/// * `Err(ParseError::InvalidNodeIndexValue)` if any node index value in the lines cannot be parsed as a usize, with the error containing the invalid node index value.
+/// * `Err(ParseError::InvalidCoordinateValue)` if any coordinate value in the lines cannot be parsed as an f64, with the error containing the invalid coordinate value.
 fn try_parse_node_coord_section_2d(lines: Vec<&str>) -> Result<DataSection, ParseError> {
     let coords = lines
         .into_iter()
@@ -590,6 +976,17 @@ fn try_parse_node_coord_section_2d(lines: Vec<&str>) -> Result<DataSection, Pars
     Ok(DataSection::NodeCoordSection2D(coords))
 }
 
+/// Helper function to parse the NODE_COORD_SECTION data section when the coordinates are in 3D format, which expects each line to contain a node index followed by x, y, and z coordinates, and collects these into a vector of tuples.
+///
+/// # Arguments
+/// * `lines` - The lines of the NODE_COORD_SECTION data section being parsed, which are expected to contain 3D coordinates in the format of a node index followed by x, y, and z coordinates.
+///
+/// # Returns
+/// * `DataSection` - The parsed NODE_COORD_SECTION data section, containing a vector of tuples with node indices and their corresponding x, y, and z coordinates.
+///
+/// # Panics
+/// * If any line in the NODE_COORD_SECTION does not contain exactly 4 values, the function will panic with an error message indicating the invalid line format in the NODE_COORD_SECTION.
+/// * If any of the values in the lines cannot be parsed as the expected types (node index as usize, x, y, and z coordinates as f64), the function will panic with an error message indicating the specific issue.
 fn parse_node_coord_section_3d(lines: Vec<&str>) -> DataSection {
     let coords = lines
         .into_iter()
@@ -610,6 +1007,18 @@ fn parse_node_coord_section_3d(lines: Vec<&str>) -> DataSection {
     DataSection::NodeCoordSection3D(coords)
 }
 
+/// Helper function to parse the NODE_COORD_SECTION data section when the coordinates are in 3D format, which expects each line to contain a node index followed by x, y, and z coordinates, and collects these into a vector of tuples.
+///
+/// # Arguments
+/// * `lines` - The lines of the NODE_COORD_SECTION data section being parsed, which are expected to contain 3D coordinates in the format of a node index followed by x, y, and z coordinates.
+///
+/// # Returns
+/// * `Result<DataSection, ParseError>` - The parsed NODE_COORD_SECTION data section, containing a vector of tuples with node indices and their corresponding x, y, and z coordinates, or an error if parsing fails.
+///
+/// # Errors
+/// * `Err(ParseError::InvalidNodeCoordLineFormat)` if any line in the NODE_COORD_SECTION does not contain exactly 4 values, with the error containing the invalid line format in the NODE_COORD_SECTION.
+/// * `Err(ParseError::InvalidNodeIndexValue)` if any node index value in the lines cannot be parsed as a usize, with the error containing the invalid node index value.
+/// * `Err(ParseError::InvalidCoordinateValue)` if any coordinate value in the lines cannot be parsed as an f64, with the error containing the invalid coordinate value.
 fn try_parse_node_coord_section_3d(lines: Vec<&str>) -> Result<DataSection, ParseError> {
     let coords = lines
         .into_iter()
@@ -638,6 +1047,17 @@ fn try_parse_node_coord_section_3d(lines: Vec<&str>) -> Result<DataSection, Pars
     Ok(DataSection::NodeCoordSection3D(coords))
 }
 
+/// Helper function to parse the FIXED_EDGES_SECTION data section, which expects each line to contain two node indices representing a fixed edge, and collects these into a vector of tuples.
+///
+/// # Arguments
+/// * `lines` - The lines of the FIXED_EDGES_SECTION data section being parsed, which are expected to contain fixed edges in the format of two node indices representing a fixed edge.
+///
+/// # Returns
+/// * `DataSection` - The parsed FIXED_EDGES_SECTION data section, containing a vector of tuples with pairs of node indices representing fixed edges.
+///
+/// # Panics
+/// * If any line in the FIXED_EDGES_SECTION does not contain exactly 2 values, the function will panic with an error message indicating the invalid line format in the FIXED_EDGES_SECTION.
+/// * If any of the values in the lines cannot be parsed as usize node indices, the function will panic with an error message indicating the invalid node index value.
 fn parse_fixed_edges_section(lines: Vec<&str>) -> DataSection {
     let edges = lines
         .into_iter()
@@ -655,6 +1075,17 @@ fn parse_fixed_edges_section(lines: Vec<&str>) -> DataSection {
     DataSection::FixedEdgesSection(edges)
 }
 
+/// Helper function to parse the FIXED_EDGES_SECTION data section, which expects each line to contain two node indices representing a fixed edge, and collects these into a vector of tuples.
+///
+/// # Arguments
+/// * `lines` - The lines of the FIXED_EDGES_SECTION data section being parsed, which are expected to contain fixed edges in the format of two node indices representing a fixed edge.
+///
+/// # Returns
+/// * `Result<DataSection, ParseError>` - The parsed FIXED_EDGES_SECTION data section, containing a vector of tuples with pairs of node indices representing fixed edges, or an error if parsing fails.
+///
+/// # Errors
+/// * `Err(ParseError::InvalidFixedEdgesLineFormat)` if any line in the FIXED_EDGES_SECTION does not contain exactly 2 values, with the error containing the invalid line format in the FIXED_EDGES_SECTION.
+/// * `Err(ParseError::InvalidNodeIndexValue)` if any node index value in the lines cannot be parsed as a usize, with the error containing the invalid node index value.
 fn try_parse_fixed_edges_section(lines: Vec<&str>) -> Result<DataSection, ParseError> {
     let edges = lines
         .into_iter()
@@ -677,6 +1108,17 @@ fn try_parse_fixed_edges_section(lines: Vec<&str>) -> Result<DataSection, ParseE
     Ok(DataSection::FixedEdgesSection(edges))
 }
 
+/// Helper function to parse the DISPLAY_DATA_SECTION data section, which expects each line to contain a node index followed by x and y coordinates for display purposes, and collects these into a vector of tuples.
+///
+/// # Arguments
+/// * `lines` - The lines of the DISPLAY_DATA_SECTION data section being parsed, which are expected to contain display data in the format of a node index followed by x and y coordinates for display purposes.
+///
+/// # Returns
+/// * `DataSection` - The parsed DISPLAY_DATA_SECTION data section, containing a vector of tuples with node indices and their corresponding x and y coordinates for display purposes.
+///
+/// # Panics
+/// * If any line in the DISPLAY_DATA_SECTION does not contain exactly 3 values, the function will panic with an error message indicating the invalid line format in the DISPLAY_DATA_SECTION.
+/// * If any of the values in the lines cannot be parsed as the expected types (node index as usize, x and y coordinates as f64), the function will panic with an error message indicating the specific issue.
 fn parse_display_data_section(lines: Vec<&str>) -> DataSection {
     let display_data = lines
         .into_iter()
@@ -695,6 +1137,18 @@ fn parse_display_data_section(lines: Vec<&str>) -> DataSection {
     DataSection::DisplayDataSection(display_data)
 }
 
+/// Helper function to parse the DISPLAY_DATA_SECTION data section, which expects each line to contain a node index followed by x and y coordinates for display purposes, and collects these into a vector of tuples.
+///
+/// # Arguments
+/// * `lines` - The lines of the DISPLAY_DATA_SECTION data section being parsed, which are expected to contain display data in the format of a node index followed by x and y coordinates for display purposes.
+///
+/// # Returns
+/// * `Result<DataSection, ParseError>` - The parsed DISPLAY_DATA_SECTION data section, containing a vector of tuples with node indices and their corresponding x and y coordinates for display purposes, or an error if parsing fails.
+///
+/// # Errors
+/// * `Err(ParseError::InvalidDisplayDataLineFormat)` if any line in the DISPLAY_DATA_SECTION does not contain exactly 3 values, with the error containing the invalid line format in the DISPLAY_DATA_SECTION.
+/// * `Err(ParseError::InvalidNodeIndexValue)` if any node index value in the lines cannot be parsed as a usize, with the error containing the invalid node index value.
+/// * `Err(ParseError::InvalidCoordinateValue)` if any coordinate value in the lines cannot be parsed as an f64, with the error containing the invalid coordinate value.
 fn try_parse_display_data_section(lines: Vec<&str>) -> Result<DataSection, ParseError> {
     let display_data = lines
         .into_iter()
@@ -720,6 +1174,16 @@ fn try_parse_display_data_section(lines: Vec<&str>) -> Result<DataSection, Parse
     Ok(DataSection::DisplayDataSection(display_data))
 }
 
+/// Helper function to parse the EDGE_WEIGHT_SECTION data section, which expects each line to contain a series of edge weight values, and collects these into a vector of vectors of f64 values.
+///
+/// # Arguments
+/// * `lines` - The lines of the EDGE_WEIGHT_SECTION data section being parsed, which are expected to contain edge weight values in the format of a series of edge weight values on each line.
+///
+/// # Returns
+/// * `DataSection` - The parsed EDGE_WEIGHT_SECTION data section, containing a vector of vectors of f64 values representing the edge weights.
+///
+/// # Panics
+/// * If any value in the lines cannot be parsed as an f64, the function will panic with an error message indicating the invalid edge weight value.
 fn parse_edge_weight_section(lines: Vec<&str>) -> DataSection {
     let edge_weights = lines
         .into_iter()
@@ -733,6 +1197,16 @@ fn parse_edge_weight_section(lines: Vec<&str>) -> DataSection {
     DataSection::EdgeWeightSection(edge_weights)
 }
 
+/// Helper function to parse the EDGE_WEIGHT_SECTION data section, which expects each line to contain a series of edge weight values, and collects these into a vector of vectors of f64 values.
+///
+/// # Arguments
+/// * `lines` - The lines of the EDGE_WEIGHT_SECTION data section being parsed, which are expected to contain edge weight values in the format of a series of edge weight values on each line.
+///
+/// # Returns
+/// * `Result<DataSection, ParseError>` - The parsed EDGE_WEIGHT_SECTION data section, containing a vector of vectors of f64 values representing the edge weights, or an error if parsing fails.
+///
+/// # Errors
+/// * `Err(ParseError::InvalidEdgeWeightLineFormat)` if any value in the lines cannot be parsed as an f64, with the error containing the invalid line format in the EDGE_WEIGHT_SECTION.
 fn try_parse_edge_weight_section(lines: Vec<&str>) -> Result<DataSection, ParseError> {
     let edge_weights = lines
         .into_iter()
@@ -749,6 +1223,7 @@ fn try_parse_edge_weight_section(lines: Vec<&str>) -> Result<DataSection, ParseE
     Ok(DataSection::EdgeWeightSection(edge_weights))
 }
 
+/// Module containing the specific error types that can occur during parsing, using the `thiserror` crate for convenient error definitions and formatting.
 pub mod errors {
     use thiserror::Error;
 
@@ -792,5 +1267,7 @@ pub mod errors {
         InvalidEdgeWeightLineFormat(String),
         #[error("Missing required field: {0}")]
         MissingRequiredField(String),
+        #[error("Unimplemented section type: {0}")]
+        UnimplementedSectionType(String),
     }
 }

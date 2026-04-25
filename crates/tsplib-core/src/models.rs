@@ -4,23 +4,38 @@ use crate::enums::{
 };
 use std::fmt;
 
+/// A struct representing a TSP instance, containing all required and optional fields, as well as the data sections.
+/// This struct can be used to represent any TSP instance defined in the TSPLIB format.
 #[derive(Debug)]
 pub struct TSPInstance {
     // required
+    /// The name of the TSP instance, as specified in the TSPLIB file. This field is required and must be a non-empty string.
     pub name: String,
+    /// The type of the TSP instance, as specified in the TSPLIB file. This field is required and must be one of the variants of the `ProblemType` enum.
     pub problem_type: ProblemType,
+    /// The dimension of the TSP instance, as specified in the TSPLIB file. This field is required and must be a positive integer.
     pub dimension: usize,
+    /// The edge weight type of the TSP instance, as specified in the TSPLIB file. This field is required and must be one of the variants of the `EdgeWeightType` enum.
     pub edge_weight_type: EdgeWeightType,
 
     // optional
+    /// The comment lines of the TSP instance, as specified in the TSPLIB file. This field is optional and can be `None` if no comment lines are present. If present, it must be a vector of strings, where each string represents a line of comment.
     pub comment: Option<Vec<String>>,
+    /// The capacity of the TSP instance, as specified in the TSPLIB file. This field is optional and can be `None` if no capacity is specified.
     pub capacity: Option<usize>,
+    /// The edge weight format of the TSP instance, as specified in the TSPLIB file. This field is optional and can be `None` if no edge weight format is specified.
     pub edge_weight_format: Option<EdgeWeightFormat>,
+    /// The edge data format of the TSP instance, as specified in the TSPLIB file. This field is optional and can be `None` if no edge data format is specified.
     pub edge_data_format: Option<EdgeDataFormat>,
+    /// The node coordinate type of the TSP instance, as specified in the TSPLIB file. This field is optional and can be `None` if no node coordinate type is specified.
     pub node_coord_type: Option<NodeCoordType>,
+    /// The display data type of the TSP instance, as specified in the TSPLIB file. This field is optional and can be `None` if no display data type is specified.
     pub display_data_type: Option<DisplayDataType>,
 
     // data sections
+    /// The data sections of the TSP instance, as specified in the TSPLIB file.
+    /// This field is required and must be a vector of `DataSection` enums, where each enum variant represents a different type of data section (e.g., `NodeCoordSection`, `EdgeWeightSection`, etc.).
+    /// The order of the data sections in the vector should match the order in which they appear in the TS
     pub data_sections: Vec<DataSection>,
 }
 

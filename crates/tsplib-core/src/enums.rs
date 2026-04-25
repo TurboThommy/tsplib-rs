@@ -1,5 +1,6 @@
 use std::fmt;
 
+/// EdgeWeightType specifies how the edge weights are defined in the problem instance.
 #[derive(Debug)]
 pub enum EdgeWeightType {
     // EXPLICIT, Weights are listed explicitly in the corresponding section
@@ -63,6 +64,7 @@ impl fmt::Display for EdgeWeightType {
     }
 }
 
+/// ProblemType specifies the type of combinatorial optimization problem being defined in the instance file.
 #[derive(Debug)]
 pub enum ProblemType {
     // Symmetric TSP
@@ -104,6 +106,7 @@ impl fmt::Display for ProblemType {
     }
 }
 
+/// EdgeWeightFormat specifies how the edge weights are formatted in the problem instance.
 #[derive(Debug)]
 pub enum EdgeWeightFormat {
     // FUNCTION, Weights are given by a function (see EdgeWeightType)
@@ -155,6 +158,7 @@ impl fmt::Display for EdgeWeightFormat {
     }
 }
 
+/// EdgeDataFormat specifies how the edge data is formatted in the problem instance.
 #[derive(Debug)]
 pub enum EdgeDataFormat {
     // EDGE_LIST, The graph is given by an edge list
@@ -174,6 +178,7 @@ impl fmt::Display for EdgeDataFormat {
     }
 }
 
+/// NodeCoordType specifies how the node coordinates are defined in the problem instance.
 #[derive(Clone, Debug)]
 pub enum NodeCoordType {
     // TWOD_COORDS, Nodes are specified by coordinates in 2D
@@ -197,6 +202,7 @@ impl fmt::Display for NodeCoordType {
     }
 }
 
+/// DisplayDataType specifies how the display data is defined in the problem instance.
 #[derive(Debug)]
 pub enum DisplayDataType {
     // COORDS_DISPLAY, Display is generated from the node coordinates (default value if node coordinates are specified)
@@ -220,6 +226,7 @@ impl fmt::Display for DisplayDataType {
     }
 }
 
+/// DataSectionType specifies the type of data section in the problem instance file.
 pub enum DataSectionType {
     // NODE_COORD_SECTION
     NodeCoordSection,
@@ -262,6 +269,7 @@ impl fmt::Display for DataSectionType {
     }
 }
 
+/// DataSection represents the actual data for a given section in the problem instance file. The variants of this enum correspond to the different types of sections that can be present in the file, and each variant contains the relevant data for that section.
 #[derive(Debug)]
 pub enum DataSection {
     // NODE_COORD_SECTION && NodeCoordType = TWOD_COORDS,
@@ -292,9 +300,9 @@ pub enum DataSection {
     EdgeDataSection,
 }
 
-// TODO: add termination sequences for sections that require them (e.g. -1)
 impl fmt::Display for DataSection {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        // TODO: add termination sequences for sections that require them (e.g. -1)
         let s = match self {
             DataSection::NodeCoordSection2D(coords) => format!(
                 "NODE_COORD_SECTION\n{}",
