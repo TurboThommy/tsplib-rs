@@ -152,6 +152,13 @@ pub fn try_parse(file_content: String) -> Result<TSPInstance, ParseError> {
         }
     }
 
+    // Handle the case where the file ends without 'EOF' or '-1', but there are still lines in the current data section that need to be saved
+    if let ParserState::Section(section_type) = state
+        && !curr_lines.is_empty()
+    {
+        data_sections.push(try_to_data_section(&section_type, curr_lines)?)
+    }
+
     // After parsing all lines, create the TSPInstance from the parsed specification and data sections
     try_create_tsp_instance(specification, data_sections)
 }
