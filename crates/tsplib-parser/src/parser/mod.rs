@@ -10,7 +10,7 @@ use tsplib_core::{
         DataSection, DataSectionType, DisplayDataType, EdgeDataFormat, EdgeWeightFormat,
         EdgeWeightType, NodeCoordType, ProblemType,
     },
-    models::TSPInstance,
+    models::TSPLIBInstance,
 };
 
 /// Internal struct to hold the parsed specification/header fields while parsing the file
@@ -88,7 +88,7 @@ impl ParserState {
 ///
 /// # Panics
 /// * If the file content cannot be parsed successfully.
-pub fn parse(file_content: String) -> TSPInstance {
+pub fn parse(file_content: String) -> TSPLIBInstance {
     try_parse(file_content).expect("Failed to parse TSP file content")
 }
 
@@ -105,7 +105,7 @@ pub fn parse(file_content: String) -> TSPInstance {
 ///
 /// # Errors
 /// * `Err(ParseError)` - An error indicating the specific issue encountered during parsing, such as invalid line formats, unknown header fields, missing required fields, or unknown section types.
-pub fn try_parse(file_content: String) -> Result<TSPInstance, ParseError> {
+pub fn try_parse(file_content: String) -> Result<TSPLIBInstance, ParseError> {
     let mut specification = SpecificationPart::new();
     let mut data_sections: Vec<DataSection> = Vec::new();
     let mut state = ParserState::Header;
@@ -188,8 +188,8 @@ pub fn try_parse(file_content: String) -> Result<TSPInstance, ParseError> {
 fn try_create_tsp_instance(
     specification: SpecificationPart,
     data_sections: Vec<DataSection>,
-) -> Result<TSPInstance, ParseError> {
-    let tsp_instance = tsplib_core::models::TSPInstance {
+) -> Result<TSPLIBInstance, ParseError> {
+    let tsp_instance = tsplib_core::models::TSPLIBInstance {
         // required fields, returns an error if any of these are missing from the specification
         name: specification
             .name

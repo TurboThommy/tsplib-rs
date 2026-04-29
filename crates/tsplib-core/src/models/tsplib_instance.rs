@@ -2,12 +2,13 @@ use crate::enums::{
     DataSection, DisplayDataType, EdgeDataFormat, EdgeWeightFormat, EdgeWeightType, NodeCoordType,
     ProblemType,
 };
+
 use std::fmt;
 
 /// A struct representing a TSP instance, containing all required and optional fields, as well as the data sections.
 /// This struct can be used to represent any TSP instance defined in the TSPLIB format.
 #[derive(Debug)]
-pub struct TSPInstance {
+pub struct TSPLIBInstance {
     // required
     /// The name of the TSP instance, as specified in the TSPLIB file. This field is required and must be a non-empty string.
     pub name: String,
@@ -39,7 +40,7 @@ pub struct TSPInstance {
     pub data_sections: Vec<DataSection>,
 }
 
-impl fmt::Display for TSPInstance {
+impl fmt::Display for TSPLIBInstance {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let mut s = Vec::new();
 
