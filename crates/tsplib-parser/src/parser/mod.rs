@@ -139,14 +139,20 @@ pub fn try_parse(file_content: String) -> Result<TSPLIBInstance, ParseError> {
             ParserState::Section(ref section_type) => {
                 // end of section or file reached, save the parsed data section
                 if line == "EOF" || line == "-1" {
-                    data_sections.push(try_to_data_section(section_type, curr_lines)?);
+                    if !curr_lines.is_empty() {
+                        data_sections.push(try_to_data_section(section_type, curr_lines)?);
+                    }
+
                     curr_lines = Vec::new();
                     continue;
                 }
 
                 // new section encountered, save the parsed data section and transition to the new section state
                 if line.contains("SECTION") {
-                    data_sections.push(try_to_data_section(section_type, curr_lines)?);
+                    if !curr_lines.is_empty() {
+                        data_sections.push(try_to_data_section(section_type, curr_lines)?);
+                    }
+
                     curr_lines = Vec::new();
                     state.try_new_section_from_line(line)?;
                     continue;
