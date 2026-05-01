@@ -1,7 +1,7 @@
 use std::fmt;
 
 /// EdgeWeightType specifies how the edge weights are defined in the problem instance.
-#[derive(Debug)]
+#[derive(Debug, Clone, Copy)]
 pub enum EdgeWeightType {
     // EXPLICIT, Weights are listed explicitly in the corresponding section
     Explicit,

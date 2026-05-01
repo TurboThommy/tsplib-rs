@@ -237,7 +237,7 @@ fn try_parse_edge_weight_section(lines: Vec<&str>) -> Result<DataSection, ParseE
                     part.parse()
                         .map_err(|_| ParseError::InvalidEdgeWeightLineFormat(line.to_string()))
                 })
-                .collect::<Result<Vec<f64>, ParseError>>()
+                .collect::<Result<Vec<i32>, ParseError>>()
         })
         .collect::<Result<Vec<_>, ParseError>>()?;
 

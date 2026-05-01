@@ -1,3 +1,9 @@
+mod errors;
+mod node;
+mod problem_instance;
 mod tsplib_instance;
 
+pub use errors::ConversionError;
+pub use node::Node;
+pub use problem_instance::ProblemInstance;
 pub use tsplib_instance::TSPLIBInstance;

@@ -16,7 +16,7 @@ pub enum DataSection {
     DisplayDataSection(Vec<(usize, f64, f64)>),
 
     // EDGE_WEIGHT_SECTION,
-    EdgeWeightSection(Vec<Vec<f64>>),
+    EdgeWeightSection(Vec<Vec<i32>>),
 
     // TOUR_SECTION, no examples given in the tsplib repo
     TourSection,

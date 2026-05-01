@@ -1,7 +1,7 @@
 use std::fmt;
 
 /// EdgeWeightFormat specifies how the edge weights are formatted in the problem instance.
-#[derive(Debug)]
+#[derive(Debug, Clone, Copy)]
 pub enum EdgeWeightFormat {
     // FUNCTION, Weights are given by a function (see EdgeWeightType)
     Function,
