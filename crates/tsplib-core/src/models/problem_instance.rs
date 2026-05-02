@@ -1,9 +1,14 @@
-use crate::models::{ConversionError, Node, TSPLIBInstance};
+use crate::{
+    enums::{DataSection, ProblemType},
+    models::{ConversionError, Node, TSPLIBInstance},
+};
 
 pub struct ProblemInstance {
     pub name: String,
+    pub problem_type: ProblemType,
     pub nodes: Vec<Node>,
     pub adjacency_matrix: Vec<Vec<i32>>,
+    pub fixed_edges: Option<Vec<(usize, usize)>>,
 }
 
 impl ProblemInstance {
@@ -29,10 +34,18 @@ impl TryFrom<TSPLIBInstance> for ProblemInstance {
         let nodes = tsp_instance.try_extract_nodes()?;
         let adjacency_matrix = tsp_instance.try_calculate_adjacency_matrix()?;
 
+        // check for fixed edges
+        let fixed_edges = tsp_instance.data_sections.iter().find_map(|s| match s {
+            DataSection::FixedEdgesSection(section) => Some(section.clone()),
+            _ => None,
+        });
+
         Ok(ProblemInstance {
             name: tsp_instance.name.clone(),
+            problem_type: tsp_instance.problem_type,
             nodes,
             adjacency_matrix,
+            fixed_edges,
         })
     }
 }
@@ -44,10 +57,18 @@ impl TryFrom<&TSPLIBInstance> for ProblemInstance {
         let nodes = tsp_instance.try_extract_nodes()?;
         let adjacency_matrix = tsp_instance.try_calculate_adjacency_matrix()?;
 
+        // check for fixed edges
+        let fixed_edges = tsp_instance.data_sections.iter().find_map(|s| match s {
+            DataSection::FixedEdgesSection(section) => Some(section.clone()),
+            _ => None,
+        });
+
         Ok(ProblemInstance {
             name: tsp_instance.name.clone(),
+            problem_type: tsp_instance.problem_type.clone(),
             nodes,
             adjacency_matrix,
+            fixed_edges,
         })
     }
 }

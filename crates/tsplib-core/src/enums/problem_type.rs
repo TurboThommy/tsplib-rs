@@ -1,7 +1,7 @@
 use std::fmt;
 
 /// ProblemType specifies the type of combinatorial optimization problem being defined in the instance file.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum ProblemType {
     // Symmetric TSP
     // distance between i and j is the same as between j and i
