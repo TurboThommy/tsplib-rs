@@ -1,36 +1,37 @@
+//! This module defines the EdgeWeightFormat enum, which specifies how the edge weights are formatted in the problem instance.
 use std::fmt;
 
 /// EdgeWeightFormat specifies how the edge weights are formatted in the problem instance.
 #[derive(Debug, Clone, Copy)]
 pub enum EdgeWeightFormat {
-    // FUNCTION, Weights are given by a function (see EdgeWeightType)
+    /// FUNCTION, Weights are given by a function (see EdgeWeightType)
     Function,
 
-    // FULL_MATRIX, Weights are given by a full matrix
+    /// FULL_MATRIX, Weights are given by a full matrix
     FullMatrix,
 
-    // UPPER_ROW, Upper triangular matrix (row-wise without diagonal entries)
+    /// UPPER_ROW, Upper triangular matrix (row-wise without diagonal entries)
     UpperRow,
 
-    // LOWER_ROW, Lower triangular matrix (row-wise without diagonal entries)
+    /// LOWER_ROW, Lower triangular matrix (row-wise without diagonal entries)
     LowerRow,
 
-    // UPPER_DIAG_ROW, Upper triangular matrix (row-wise including diagonal entries)
+    /// UPPER_DIAG_ROW, Upper triangular matrix (row-wise including diagonal entries)
     UpperDiagRow,
 
-    // LOWER_DIAG_ROW, Lower triangular matrix (row-wise including diagonal entries)
+    /// LOWER_DIAG_ROW, Lower triangular matrix (row-wise including diagonal entries)
     LowerDiagRow,
 
-    // UPPER_COL, Upper triangular matrix (column-wise without diagonal entries)
+    /// UPPER_COL, Upper triangular matrix (column-wise without diagonal entries)
     UpperCol,
 
-    // LOWER_COL, Lower triangular matrix (column-wise without diagonal entries)
+    /// LOWER_COL, Lower triangular matrix (column-wise without diagonal entries)
     LowerCol,
 
-    // UPPER_DIAG_COL, Upper triangular matrix (column-wise including diagonal entries)
+    /// UPPER_DIAG_COL, Upper triangular matrix (column-wise including diagonal entries)
     UpperDiagCol,
 
-    // LOWER_DIAG_COL, Lower triangular matrix (column-wise including diagonal entries)
+    /// LOWER_DIAG_COL, Lower triangular matrix (column-wise including diagonal entries)
     LowerDiagCol,
 }
 

@@ -1,3 +1,6 @@
+//! This module defines the `TSPLIBInstance` struct, which represents a TSP instance as defined in the TSPLIB format.
+//! The struct contains all required and optional fields, as well as the data sections of the instance.
+//! It also provides methods for extracting nodes and calculating the adjacency matrix based on the available data sections and edge weight type.
 use crate::distances::{
     distance_att, distance_ceil_2d, distance_euc_2d, distance_geo, distance_man_2d, distance_max_2d,
 };

@@ -1,12 +1,13 @@
+//! This module defines the EdgeDataFormat enum, which specifies how the edge data is formatted in the problem instance.
 use std::fmt;
 
 /// EdgeDataFormat specifies how the edge data is formatted in the problem instance.
 #[derive(Debug)]
 pub enum EdgeDataFormat {
-    // EDGE_LIST, The graph is given by an edge list
+    /// EDGE_LIST, The graph is given by an edge list
     EdgeList,
 
-    // ADJ_LIST, The graph is given as an adjacency list
+    /// ADJ_LIST, The graph is given as an adjacency list
     AdjList,
 }
 

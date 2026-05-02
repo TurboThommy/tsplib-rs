@@ -1,30 +1,31 @@
+//! Defines the ProblemType enum, which specifies the type of combinatorial optimization problem being defined in the instance file.
 use std::fmt;
 
 /// ProblemType specifies the type of combinatorial optimization problem being defined in the instance file.
 #[derive(Debug, Clone)]
 pub enum ProblemType {
-    // Symmetric TSP
-    // distance between i and j is the same as between j and i
+    /// Symmetric TSP
+    /// distance between i and j is the same as between j and i
     TSP,
 
-    // Asymmetric TSP
-    // distance from i to j may differ from distance from j to i
+    /// Asymmetric TSP
+    /// distance from i to j may differ from distance from j to i
     ATSP,
 
-    // Sequential Ordering Problem
-    // ATSP with precedence constraints, where certain vertices must be visited before others
+    /// Sequential Ordering Problem
+    /// ATSP with precedence constraints, where certain vertices must be visited before others
     SOP,
 
-    // Hammilton Cycle Problem
-    // Test if the graph contains a hammilton cycle (a cycle that visits each vertex exactly once)
+    /// Hamilton Cycle Problem
+    /// Test if the graph contains a Hamilton cycle (a cycle that visits each vertex exactly once)
     HCP,
 
-    // Capacitated Vehicle Routing Problem
-    // TSP with multiple vehicles and capacity constraints
+    /// Capacitated Vehicle Routing Problem
+    /// TSP with multiple vehicles and capacity constraints
     CVRP,
 
-    // Collectison of tours
-    // TBD
+    /// Collection of tours
+    /// TBD
     TOUR,
 }
 

@@ -1,3 +1,4 @@
+//! This module defines the `Node` struct, which represents a node in a graph with its coordinates and provides methods to calculate various types of distances between nodes.
 use crate::distances::*;
 
 /// A struct representing the node of a graph.

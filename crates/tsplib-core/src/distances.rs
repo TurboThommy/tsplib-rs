@@ -1,3 +1,6 @@
+//! Distance calculation functions for coordinates in 2D and 3D space,
+//! as well as for specific distance types defined in the TSPLIB specification.
+
 /// Calculates the Euclidean distance between two nodes in 2D space.
 ///
 /// # Arguments

@@ -1,29 +1,30 @@
+//! This module defines the DataSectionType enum, which specifies the type of data section in the problem instance file.
 use std::fmt;
 
 /// DataSectionType specifies the type of data section in the problem instance file.
 pub enum DataSectionType {
-    // NODE_COORD_SECTION
+    /// NODE_COORD_SECTION
     NodeCoordSection,
 
-    // FIXED_EDGES_SECTION,
+    /// FIXED_EDGES_SECTION
     FixedEdgesSection,
 
-    // DISPLAY_DATA_SECTION,
+    /// DISPLAY_DATA_SECTION
     DisplayDataSection,
 
-    // EDGE_WEIGHT_SECTION,
+    /// EDGE_WEIGHT_SECTION
     EdgeWeightSection,
 
-    // TOUR_SECTION, no examples given in the tsplib repo
+    /// TOUR_SECTION, no examples given in the tsplib repo
     TourSection,
 
-    // DEPOT_SECTION, no examples given in the tsplib repo
+    /// DEPOT_SECTION, no examples given in the tsplib repo
     DepotSection,
 
-    // DEMAND_SECTION, no examples given in the tsplib repo
+    /// DEMAND_SECTION, no examples given in the tsplib repo
     DemandSection,
 
-    // EDGE_DATA_SECTION, no examples given in the tsplib repo
+    /// EDGE_DATA_SECTION, no examples given in the tsplib repo
     EdgeDataSection,
 }
 

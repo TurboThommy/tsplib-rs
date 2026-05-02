@@ -1,14 +1,26 @@
+//! Defines the `ProblemInstance` struct, which represents a TSP problem instance with its name, type, nodes, adjacency matrix, and optional fixed edges.
+//! It also includes methods for estimating heap size and converting from a `TSPLIBInstance`.
 use crate::{
     enums::ConversionError,
     enums::{DataSection, ProblemType},
     models::{Node, TSPLIBInstance},
 };
 
+/// Represents a TSP problem instance as graph (collection of nodes and an adjacency matrix).
 pub struct ProblemInstance {
+    /// The name of the problem instance.
     pub name: String,
+
+    /// The TYPE of the problem instance.
     pub problem_type: ProblemType,
+
+    /// The nodes in the problem instance.
     pub nodes: Vec<Node>,
+
+    /// The adjacency matrix representing the distances between nodes.
     pub adjacency_matrix: Vec<Vec<i32>>,
+
+    /// Optional fixed edges that must be included in the solution.
     pub fixed_edges: Option<Vec<(usize, usize)>>,
 }
 

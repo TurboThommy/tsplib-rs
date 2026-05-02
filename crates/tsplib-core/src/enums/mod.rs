@@ -1,3 +1,4 @@
+//! This module contains all the enums used in the library.
 mod data_section;
 mod data_section_type;
 mod display_data_type;

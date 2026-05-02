@@ -1,3 +1,4 @@
+//! This module contains the core data structures for representing TSP instances and their components.
 mod node;
 mod problem_instance;
 mod tsplib_instance;

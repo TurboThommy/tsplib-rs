@@ -1,3 +1,7 @@
+//! Main parser module for parsing TSP files in the TSPLIB format.
+//! This module contains the main parsing logic and state machine to handle the different parts of the file,
+//! as well as helper functions to parse individual header fields and data sections
+//! and error handling for various parsing issues.
 pub mod errors;
 mod sections;
 mod specification;
@@ -15,19 +19,40 @@ use tsplib_core::{
 
 /// Internal struct to hold the parsed specification/header fields while parsing the file
 struct SpecificationPart {
+    /// The name of the TSP instance, as specified in the "NAME" field of the file header.
     name: Option<String>,
+
+    /// The type of the TSP problem, as specified in the "TYPE" field of the file header.
     problem_type: Option<ProblemType>,
+
+    /// The dimension of the TSP instance, as specified in the "DIMENSION" field of the file header.
     dimension: Option<usize>,
+
+    /// The type of edge weight representation used in the TSP instance, as specified in the "EDGE_WEIGHT_TYPE" field of the file header.
     edge_weight_type: Option<EdgeWeightType>,
+
+    /// The comment lines from the file header, as specified in the "COMMENT" fields of the file header.
+    /// This is a vector of strings, as there can be multiple comment lines in the file.
     comment: Vec<String>,
+
+    /// The truck capacity of the TSP instance, as specified in the "CAPACITY" field of the file header.
     capacity: Option<usize>,
+
+    /// The format of the edge weight data section, as specified in the "EDGE_WEIGHT_FORMAT" field of the file header.
     edge_weight_format: Option<EdgeWeightFormat>,
+
+    /// The format of the edge data section, as specified in the "EDGE_DATA_FORMAT" field of the file header.
     edge_data_format: Option<EdgeDataFormat>,
+
+    /// The type of node coordinate representation used in the TSP instance, as specified in the "NODE_COORD_TYPE" field of the file header.
     node_coord_type: Option<NodeCoordType>,
+
+    /// The type of display data representation used in the TSP instance, as specified in the "DISPLAY_DATA_TYPE" field of the file header.
     display_data_type: Option<DisplayDataType>,
 }
 
 impl SpecificationPart {
+    /// Helper function to create a new SpecificationPart with all fields initialized to None or empty values.
     fn new() -> Self {
         Self {
             name: None,
