@@ -4,6 +4,7 @@ mod display_data_type;
 mod edge_data_format;
 mod edge_weight_format;
 mod edge_weight_type;
+mod errors;
 mod node_coord_type;
 mod problem_type;
 
@@ -13,5 +14,6 @@ pub use display_data_type::DisplayDataType;
 pub use edge_data_format::EdgeDataFormat;
 pub use edge_weight_format::EdgeWeightFormat;
 pub use edge_weight_type::EdgeWeightType;
+pub use errors::ConversionError;
 pub use node_coord_type::NodeCoordType;
 pub use problem_type::ProblemType;

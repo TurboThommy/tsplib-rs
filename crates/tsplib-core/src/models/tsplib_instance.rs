@@ -1,14 +1,13 @@
 use crate::distances::{
     distance_att, distance_ceil_2d, distance_euc_2d, distance_geo, distance_man_2d, distance_max_2d,
 };
-use crate::models::Node;
-use crate::{
-    enums::{
-        DataSection, DisplayDataType, EdgeDataFormat, EdgeWeightFormat, EdgeWeightType,
-        NodeCoordType, ProblemType,
-    },
-    models::errors::ConversionError,
+use crate::enums::{
+    DataSection, DisplayDataType, EdgeDataFormat, EdgeWeightFormat, EdgeWeightType, NodeCoordType,
+    ProblemType,
 };
+
+use crate::enums::ConversionError;
+use crate::models::Node;
 
 use std::{fmt, vec};
 

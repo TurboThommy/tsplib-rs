@@ -1,6 +1,7 @@
 use crate::{
+    enums::ConversionError,
     enums::{DataSection, ProblemType},
-    models::{ConversionError, Node, TSPLIBInstance},
+    models::{Node, TSPLIBInstance},
 };
 
 pub struct ProblemInstance {
