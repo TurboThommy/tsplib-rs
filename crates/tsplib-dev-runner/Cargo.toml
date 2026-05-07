@@ -7,3 +7,4 @@ edition = "2024"
 itertools = "0.14.0"
 tsplib-core = { path = "../tsplib-core" }
 tsplib-parser = { path = "../tsplib-parser" }
+tsplib-solver = { path = "../tsplib-solver" }
