@@ -38,6 +38,18 @@ impl ProblemInstance {
 
         nodes_size + matrix_size
     }
+
+    pub fn distance(&self, from: usize, to: usize) -> i32 {
+        if from == 0
+            || to == 0
+            || from > self.adjacency_matrix.len() + 1
+            || to > self.adjacency_matrix.len() + 1
+        {
+            // TODO: Implement proper error handling instead of panicking
+            panic!("Node IDs must be between 1 and the number of nodes in the problem instance.");
+        }
+        self.adjacency_matrix[from - 1][to - 1]
+    }
 }
 
 impl TryFrom<TSPLIBInstance> for ProblemInstance {

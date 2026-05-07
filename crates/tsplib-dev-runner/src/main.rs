@@ -3,6 +3,7 @@ use itertools::Itertools;
 use std::fs;
 use tsplib_core::models::ProblemInstance;
 use tsplib_parser::{parse, try_parse};
+use tsplib_solver::TspSolver;
 
 /// The main function serves as the entry point of the program, calling the test functions for parsing TSP files.
 fn main() {
@@ -10,7 +11,8 @@ fn main() {
     // test_try_parse();
     // test_edge_weight_matrix_conversion();
     // test_graph_conversion();
-    test_instance_to_string();
+    // test_instance_to_string();
+    test_greedy_solver();
 }
 
 /// Tests the `parse` function by reading TSP files from the "./data" directory, parsing them, and printing the results.
@@ -101,12 +103,31 @@ fn test_edge_weight_matrix_conversion() {
     });
 }
 
+/// Tests the to_string implementation of TSPInstance by reading a TSP file, parsing it, and printing the resulting string representation.
 #[allow(dead_code)]
 fn test_instance_to_string() {
     let tsp_instance =
         try_parse(read_file("./data/linhp318.tsp")).expect("failed to read instance");
 
     println!("{}", tsp_instance);
+}
+
+/// Tests the greedy TSP solver by creating a sample problem instance and attempting to solve it, printing the results.
+#[allow(dead_code)]
+fn test_greedy_solver() {
+    let tsp_instance = try_parse(read_file("./data/burma14.tsp")).expect("failed to read instance");
+    let problem_instance: ProblemInstance =
+        tsp_instance.try_into().expect("failed to convert instance");
+
+    let solver = tsplib_solver::Greedy {};
+    let solution = solver
+        .try_solve(&problem_instance, 1)
+        .expect("failed to solve instance");
+
+    println!("Tour: {:?}", solution.tour);
+    println!("Total distance: {}", solution.cost);
+
+    println!("Adjacency matrix: {:?}", problem_instance.adjacency_matrix);
 }
 
 /// Reads all .tsp files from the provided path directory and returns their contents as a vector of strings.
