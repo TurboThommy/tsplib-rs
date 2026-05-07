@@ -34,7 +34,7 @@ impl ProblemInstance {
         let nodes_size = self.nodes.len() * std::mem::size_of::<Node>();
         let matrix_size = self.adjacency_matrix.len()
             * self.adjacency_matrix.first().map_or(0, |r| r.len())
-            * std::mem::size_of::<f64>();
+            * std::mem::size_of::<i32>();
 
         nodes_size + matrix_size
     }
