@@ -189,9 +189,13 @@ pub(super) fn distance_att(
 /// * `i32` - The calculated distance rounded to the nearest integer.
 ///   Returns 0 if the nodes are the same (i.e., have the same ID).
 pub(super) fn distance_geo(
-    (_, x_1, y_1): (usize, f64, f64),
-    (_, x_2, y_2): (usize, f64, f64),
+    (id_1, x_1, y_1): (usize, f64, f64),
+    (id_2, x_2, y_2): (usize, f64, f64),
 ) -> i32 {
+    if id_1 == id_2 {
+        return 0;
+    }
+
     // calculate latitude and longitude in radians for self
     let (lat_1, long_1) = calculate_latitude_longitude(x_1, y_1);
 
