@@ -37,7 +37,6 @@ pub enum DataSection {
 
 impl fmt::Display for DataSection {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        // TODO: add termination sequences for sections that require them (e.g. -1)
         let s = match self {
             DataSection::NodeCoordSection2D(coords) => format!(
                 "NODE_COORD_SECTION\n{}",
@@ -56,7 +55,7 @@ impl fmt::Display for DataSection {
                     .join("\n")
             ),
             DataSection::FixedEdgesSection(edges) => format!(
-                "FIXED_EDGES_SECTION\n{}",
+                "FIXED_EDGES_SECTION\n{}\n-1",
                 edges
                     .iter()
                     .map(|(from, to)| format!("{} {}", from, to))
@@ -83,10 +82,18 @@ impl fmt::Display for DataSection {
                     .collect::<Vec<_>>()
                     .join("\n")
             ),
-            DataSection::TourSection => "TOUR_SECTION".to_string(),
-            DataSection::DepotSection => "DEPOT_SECTION".to_string(),
-            DataSection::DemandSection => "DEMAND_SECTION".to_string(),
-            DataSection::EdgeDataSection => "EDGE_DATA_SECTION".to_string(),
+            DataSection::TourSection => {
+                unimplemented!("fmt is not implemented for TOUR_SECTION yet")
+            }
+            DataSection::DepotSection => {
+                unimplemented!("fmt is not implemented for DEPOT_SECTION yet")
+            }
+            DataSection::DemandSection => {
+                unimplemented!("fmt is not implemented for DEMAND_SECTION yet")
+            }
+            DataSection::EdgeDataSection => {
+                unimplemented!("fmt is not implemented for EDGE_DATA_SECTION yet")
+            }
         };
         write!(f, "{}", s)
     }

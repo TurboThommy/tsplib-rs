@@ -9,7 +9,8 @@ fn main() {
     // test_parse();
     // test_try_parse();
     // test_edge_weight_matrix_conversion();
-    test_graph_conversion();
+    // test_graph_conversion();
+    test_instance_to_string();
 }
 
 /// Tests the `parse` function by reading TSP files from the "./data" directory, parsing them, and printing the results.
@@ -98,6 +99,14 @@ fn test_edge_weight_matrix_conversion() {
     adjacency_matrices.for_each(|m| {
         println!("{:?}", m);
     });
+}
+
+#[allow(dead_code)]
+fn test_instance_to_string() {
+    let tsp_instance =
+        try_parse(read_file("./data/linhp318.tsp")).expect("failed to read instance");
+
+    println!("{}", tsp_instance);
 }
 
 /// Reads all .tsp files from the provided path directory and returns their contents as a vector of strings.
