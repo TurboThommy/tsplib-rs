@@ -159,7 +159,7 @@ impl TspSolver for HeldKarp {
                     let s_next = s | (1 << k);
 
                     // calculate the cost to extend the path from j to k
-                    let cost = dp[s][j] + problem.adjacency_matrix[j][k] as i64;
+                    let cost = dp[s][j] + problem.distance(j + 1, k + 1) as i64;
 
                     // update the tables if the new cost is lower
                     if cost < dp[s_next][k] {
@@ -178,14 +178,14 @@ impl TspSolver for HeldKarp {
         let minimal_cost = (0..n)
             .filter(|&j| j != start_idx) // exclude start node
             .filter(|&j| dp[full_mask][j] != i64::MAX) // only consider valid paths
-            .map(|j| dp[full_mask][j] + problem.adjacency_matrix[j][start_idx] as i64) // add cost to return to start node
+            .map(|j| dp[full_mask][j] + problem.distance(j + 1, start_idx + 1) as i64) // add cost to return to start node
             .min() // find the minimum cost
             .ok_or(SolverError::NoSolution)?;
 
         let mut last_node = (0..n)
             .filter(|&j| j != start_idx)
             .filter(|&j| dp[full_mask][j] != i64::MAX)
-            .min_by_key(|&j| dp[full_mask][j] + problem.adjacency_matrix[j][start_idx] as i64)
+            .min_by_key(|&j| dp[full_mask][j] + problem.distance(j + 1, start_idx + 1) as i64)
             .unwrap(); // we know there is at least one valid path, so unwrap is safe here
 
         // reconstruct the path

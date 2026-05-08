@@ -131,12 +131,11 @@ fn test_greedy_solver() {
 
 #[allow(dead_code)]
 fn test_held_karp_solver() {
-    let tsp_instance = try_parse(read_file("./data/test_data/burma14_fixed_edge_test.tsp"))
-        .expect("failed to read instance");
+    let tsp_instance = try_parse(read_file("./data/burma14.tsp")).expect("failed to read instance");
     let problem_instance: ProblemInstance =
         tsp_instance.try_into().expect("failed to convert instance");
 
-    let solver = tsplib_solver::HeldKarp::try_new(20).expect("failed to create HeldKarp solver");
+    let solver = tsplib_solver::HeldKarp::try_new(25).expect("failed to create HeldKarp solver");
     let solution = solver
         .try_solve(&problem_instance, 1)
         .expect("failed to solve instance");
