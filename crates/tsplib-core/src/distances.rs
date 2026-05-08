@@ -233,17 +233,24 @@ pub(super) fn distance_geo(
 /// longitude[i] = PI * (deg + 5.0 * min / 3.0 ) / 180.0;
 /// ```
 ///
+/// # Remarks
+/// The TSPLIB specification uses a specific format for GEO coordinates where the integer part
+/// of the coordinate represents degrees and the fractional part represents minutes.\
+/// To counteract that the solution provided at
+/// https://comopt.ifi.uni-heidelberg.de/software/TSPLIB95/TSPFAQ.html
+/// is used.
+///
 /// # Returns
 /// * `(f64, f64)` - A tuple containing the latitude and longitude in radians.
 #[allow(clippy::approx_constant)]
 fn calculate_latitude_longitude(x: f64, y: f64) -> (f64, f64) {
     let pi = 3.141592; // TSPLIB95 specification value for PI
 
-    let deg_x = x.round();
+    let deg_x = x.trunc();
     let min_x = x - deg_x;
     let latitude = pi * (deg_x + 5.0 * min_x / 3.0) / 180.0;
 
-    let deg_y = y.round();
+    let deg_y = y.trunc();
     let min_y = y - deg_y;
     let longitude = pi * (deg_y + 5.0 * min_y / 3.0) / 180.0;
 
