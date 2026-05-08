@@ -14,4 +14,12 @@ pub enum SolverError {
     FixedEdgeToVisitedNode,
     #[error("Start node {0} is the target of a fixed edge, which is not supported.")]
     StartNodeIsFixedEdgeTarget(usize),
+    #[error("Problem dimension exceeds the maximum allowed for this solver.")]
+    DimensionExceeded,
+    #[error(
+        "Invalid dimension for Held-Karp solver. Maximum allowed is 64 due to bitmask limitations. Found {0}."
+    )]
+    HeldKarpInvalidDimension(usize),
+    #[error("No solution found.")]
+    NoSolution,
 }

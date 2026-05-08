@@ -12,7 +12,8 @@ fn main() {
     // test_edge_weight_matrix_conversion();
     // test_graph_conversion();
     // test_instance_to_string();
-    test_greedy_solver();
+    // test_greedy_solver();
+    test_held_karp_solver();
 }
 
 /// Tests the `parse` function by reading TSP files from the "./data" directory, parsing them, and printing the results.
@@ -126,8 +127,26 @@ fn test_greedy_solver() {
 
     println!("Tour: {:?}", solution.tour);
     println!("Total distance: {}", solution.cost);
+}
 
-    println!("Adjacency matrix: {:?}", problem_instance.adjacency_matrix);
+#[allow(dead_code)]
+fn test_held_karp_solver() {
+    let tsp_instance = try_parse(read_file("./data/burma14.tsp")).expect("failed to read instance");
+    let problem_instance: ProblemInstance =
+        tsp_instance.try_into().expect("failed to convert instance");
+
+    let solver = tsplib_solver::HeldKarp::try_new(25).expect("failed to create HeldKarp solver");
+    let solution = solver
+        .try_solve(&problem_instance, 1)
+        .expect("failed to solve instance");
+
+    println!("Tour: {:?}", solution.tour);
+    println!("Total distance: {}", solution.cost);
+
+    println!("Adjacency matrix:");
+    for row in problem_instance.adjacency_matrix.iter() {
+        println!("{:?}", row);
+    }
 }
 
 /// Reads all .tsp files from the provided path directory and returns their contents as a vector of strings.
