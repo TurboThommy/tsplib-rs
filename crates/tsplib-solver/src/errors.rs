@@ -14,4 +14,8 @@ pub enum SolverError {
     FixedEdgeToVisitedNode,
     #[error("Start node {0} is the target of a fixed edge, which is not supported.")]
     StartNodeIsFixedEdgeTarget(usize),
+    #[error("Problem dimension exceeds the maximum allowed for this solver.")]
+    DimensionExceeded,
+    #[error("No solution found.")]
+    NoSolution,
 }
