@@ -1,28 +1,99 @@
+//! A module containing the implementation of the Held-Karp algorithm for solving the Traveling Salesman Problem (TSP).
+
+use std::collections::{HashMap, HashSet};
+
 use tsplib_core::models::{ProblemInstance, TspSolution};
 
 use crate::{TspSolver, errors::SolverError};
 
 /// The Held-Karp algorithm is a dynamic programming approach to solve the TSP problem.
-pub struct HeldCarp {
+pub struct HeldKarp {
     /// The maximum dimension (number of nodes) that the Held-Karp algorithm can handle.
     /// The table used by the algorithm grows exponentially with the number of nodes,
     /// the memory usage is O(n * 2^n) * size of an integer
-    pub max_dimension: usize,
+    max_dimension: usize,
 }
 
-impl TspSolver for HeldCarp {
+impl HeldKarp {
+    /// Creates a new instance of the HeldKarp solver with the specified maximum dimension.
+    /// The maximum dimension is necessary to prevent excessive memory usage, as the Held-Karp algorithm has exponential space complexity.
+    /// # Arguments
+    /// * `max_dimension` - The maximum number of nodes that the Held-Karp algorithm can handle.
+    ///   Must be less than or equal to 64 due to bitmask limitations.
+    ///
+    /// # Returns
+    /// * `Result<Self, SolverError>` - On success, returns an instance of the HeldKarp solver.
+    ///   On failure, returns a `SolverError` indicating the reason for the failure
+    ///   (e.g., if the provided maximum dimension exceeds the allowed limit).
+    pub fn try_new(max_dimension: usize) -> Result<Self, SolverError> {
+        if max_dimension > 64 {
+            return Err(SolverError::HeldKarpInvalidDimension(max_dimension));
+        }
+        Ok(Self { max_dimension })
+    }
+}
+
+impl TspSolver for HeldKarp {
+    /// Solves the TSP problem using the Held-Karp algorithm, starting from the specified node.
+    /// The algorithm uses dynamic programming to find the optimal tour by building up solutions for subsets of nodes.
+    /// It also respects fixed edges if they exist in the problem instance.
+    ///
+    /// # Arguments
+    /// * `problem` - A reference to the `ProblemInstance` representing the TSP problem to be solved.
+    /// * `start_node` - The ID of the node from which the tour should start.
+    ///
+    /// # Returns
+    /// * `Result<TspSolution, SolverError>` - On success, returns a `TspSolution` containing the optimal tour and its total cost.
+    ///   On failure, returns a `SolverError` indicating the reason for the failure
+    ///   (e.g., invalid start node, dimension exceeded, no solution found, etc.).
     fn try_solve(
         &self,
         problem: &ProblemInstance,
         start_node: usize,
     ) -> Result<TspSolution, SolverError> {
-        // TODO: add support for fixed edges
+        // number of nodes in the problem
         let n = problem.nodes.len();
 
-        // TODO: perhaps add a maximum of 64 nodes, since the bitmask used is i64
         // check if dimension is within limits
         if n > self.max_dimension {
             return Err(SolverError::DimensionExceeded);
+        }
+
+        // TODO: refactor: move the ckecks for start_node and fixed edges to a separate function, since they are needed for all solvers
+        // check if start_node is valid
+        if !problem.nodes.iter().any(|n| n.id == start_node) {
+            return Err(SolverError::InvalidStartNode);
+        }
+
+        // collect all fixed edges and their targets for quick lookup
+        let fixed_edges = problem.fixed_edges.iter().flatten().collect::<Vec<_>>();
+        let fixed_edges_targets = fixed_edges
+            .iter()
+            .map(|(_, to)| *to)
+            .collect::<HashSet<usize>>();
+
+        let fixed_edge_map = fixed_edges
+            .iter()
+            .map(|(from, to)| (*from, *to))
+            .collect::<HashMap<usize, usize>>();
+
+        // check if start_node is target of a fixed edge
+        if fixed_edges_targets.contains(&start_node) {
+            return Err(SolverError::StartNodeIsFixedEdgeTarget(start_node));
+        }
+
+        // check if any node has multiple fixed edges
+        let max_fixed_edges = fixed_edges
+            .iter()
+            .fold(HashMap::new(), |mut acc, (from, _)| {
+                *acc.entry(*from).or_insert(0) += 1;
+                acc
+            })
+            .into_iter()
+            .find(|(_, count)| *count > 1);
+
+        if let Some((node_id, _)) = max_fixed_edges {
+            return Err(SolverError::MultipleFixedEdges(node_id));
         }
 
         // number of subsets of nodes = 2^n
@@ -69,6 +140,19 @@ impl TspSolver for HeldCarp {
                     // if k is already in subset s, skip
                     if (s & (1 << k)) != 0 {
                         continue;
+                    }
+
+                    // check for fixed edge from j to k
+                    if let Some(&forced_k) = fixed_edge_map.get(&(j + 1)) {
+                        // if there is a fixed edge from j to forced_k, we can only consider that edge
+                        if k != forced_k - 1 {
+                            continue;
+                        }
+                    } else {
+                        // if there is no fixed edge from j, we cannot consider nodes that are targets of fixed edges
+                        if fixed_edges_targets.contains(&(k + 1)) {
+                            continue;
+                        }
                     }
 
                     // new subset with node k added

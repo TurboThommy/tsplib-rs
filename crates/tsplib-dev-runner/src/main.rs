@@ -13,7 +13,7 @@ fn main() {
     // test_graph_conversion();
     // test_instance_to_string();
     // test_greedy_solver();
-    test_held_carp_solver();
+    test_held_karp_solver();
 }
 
 /// Tests the `parse` function by reading TSP files from the "./data" directory, parsing them, and printing the results.
@@ -130,12 +130,13 @@ fn test_greedy_solver() {
 }
 
 #[allow(dead_code)]
-fn test_held_carp_solver() {
-    let tsp_instance = try_parse(read_file("./data/burma14.tsp")).expect("failed to read instance");
+fn test_held_karp_solver() {
+    let tsp_instance = try_parse(read_file("./data/test_data/burma14_fixed_edge_test.tsp"))
+        .expect("failed to read instance");
     let problem_instance: ProblemInstance =
         tsp_instance.try_into().expect("failed to convert instance");
 
-    let solver = tsplib_solver::HeldCarp { max_dimension: 20 };
+    let solver = tsplib_solver::HeldKarp::try_new(20).expect("failed to create HeldKarp solver");
     let solution = solver
         .try_solve(&problem_instance, 1)
         .expect("failed to solve instance");
