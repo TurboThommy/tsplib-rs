@@ -1,8 +1,7 @@
 //! Defines the `ProblemInstance` struct, which represents a TSP problem instance with its name, type, nodes, adjacency matrix, and optional fixed edges.
 //! It also includes methods for estimating heap size and converting from a `TSPLIBInstance`.
 use crate::{
-    enums::ConversionError,
-    enums::{DataSection, ProblemType},
+    enums::{ConversionError, DataSection, InstanceError, ProblemType},
     models::{Node, TSPLIBInstance},
 };
 
@@ -39,16 +38,19 @@ impl ProblemInstance {
         nodes_size + matrix_size
     }
 
-    pub fn distance(&self, from: usize, to: usize) -> i32 {
+    pub fn try_get_distance(&self, from: usize, to: usize) -> Result<i32, InstanceError> {
         if from == 0
             || to == 0
-            || from > self.adjacency_matrix.len() + 1
-            || to > self.adjacency_matrix.len() + 1
+            || from > self.adjacency_matrix.len()
+            || to > self.adjacency_matrix.len()
         {
-            // TODO: Implement proper error handling instead of panicking
-            panic!("Node IDs must be between 1 and the number of nodes in the problem instance.");
+            return Err(InstanceError::DistanceInvalidNodeId(
+                from,
+                to,
+                self.adjacency_matrix.len(),
+            ));
         }
-        self.adjacency_matrix[from - 1][to - 1]
+        Ok(self.adjacency_matrix[from - 1][to - 1])
     }
 }
 
