@@ -12,7 +12,7 @@ fn main() {
     // test_edge_weight_matrix_conversion();
     // test_graph_conversion();
     // test_instance_to_string();
-    // test_greedy_solver();
+    test_greedy_solver();
     test_held_karp_solver();
 }
 
@@ -142,11 +142,6 @@ fn test_held_karp_solver() {
 
     println!("Tour: {:?}", solution.tour);
     println!("Total distance: {}", solution.cost);
-
-    println!("Adjacency matrix:");
-    for row in problem_instance.adjacency_matrix.iter() {
-        println!("{:?}", row);
-    }
 }
 
 /// Reads all .tsp files from the provided path directory and returns their contents as a vector of strings.

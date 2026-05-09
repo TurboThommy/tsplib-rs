@@ -3,6 +3,14 @@ use thiserror::Error;
 
 use crate::enums::{EdgeWeightFormat, EdgeWeightType};
 
+#[derive(Error, Debug)]
+pub enum InstanceError {
+    #[error(
+        "One of the node IDs is not between 1 and the dimension of the problem instance. Found {0} and {1}, expected IDs between 1 and {2}"
+    )]
+    DistanceInvalidNodeId(usize, usize, usize),
+}
+
 /// ConversionError represents errors that can occur during the conversion between different model types.
 #[derive(Error, Debug)]
 pub enum ConversionError {

@@ -1,6 +1,7 @@
 //! This module defines the SolverError enum, which represents errors that can occur during TSP solving.
 
 use thiserror::Error;
+use tsplib_core::enums::InstanceError::{self, DistanceInvalidNodeId};
 
 #[derive(Error, Debug)]
 pub enum SolverError {
@@ -22,4 +23,16 @@ pub enum SolverError {
     HeldKarpInvalidDimension(usize),
     #[error("No solution found.")]
     NoSolution,
+    #[error("Distance retrieval error: {0}")]
+    DistanceRetrievalError(String),
+}
+
+impl From<InstanceError> for SolverError {
+    fn from(value: InstanceError) -> Self {
+        match value {
+            DistanceInvalidNodeId(_, _, _) => {
+                SolverError::DistanceRetrievalError(value.to_string())
+            }
+        }
+    }
 }

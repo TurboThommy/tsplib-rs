@@ -2,7 +2,10 @@
 
 use std::collections::{HashMap, HashSet};
 
-use tsplib_core::models::{ProblemInstance, TspSolution};
+use tsplib_core::{
+    enums::InstanceError,
+    models::{ProblemInstance, TspSolution},
+};
 
 use crate::{TspSolver, errors::SolverError};
 
@@ -74,7 +77,7 @@ impl TspSolver for Greedy {
                 }
                 visited.insert(*to);
                 tour.push(*to);
-                total_distance += problem.distance(current_node, *to) as i64;
+                total_distance += problem.try_get_distance(current_node, *to)? as i64;
                 current_node = *to;
                 continue;
             }
@@ -84,17 +87,22 @@ impl TspSolver for Greedy {
                 .nodes
                 .iter()
                 .filter(|n| !visited.contains(&n.id) && !fixed_edges_targets.contains(&n.id))
-                .min_by_key(|n| problem.distance(current_node, n.id));
+                .map(|n| Ok((n, problem.try_get_distance(current_node, n.id)?)))
+                .collect::<Result<Vec<_>, InstanceError>>()?
+                .into_iter()
+                .min_by_key(|(_, dist)| *dist)
+                .map(|(n, _)| n);
+
             if let Some(next_node) = next_node {
                 visited.insert(next_node.id);
                 tour.push(next_node.id);
-                total_distance += problem.distance(current_node, next_node.id) as i64;
+                total_distance += problem.try_get_distance(current_node, next_node.id)? as i64;
                 current_node = next_node.id;
             } else {
                 return Err(SolverError::NoUnvisitedNodes);
             }
         }
-        total_distance += problem.distance(current_node, start_node) as i64; // return to the starting node
+        total_distance += problem.try_get_distance(current_node, start_node)? as i64; // return to the starting node
 
         Ok(TspSolution {
             tour,

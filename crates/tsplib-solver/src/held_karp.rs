@@ -159,7 +159,7 @@ impl TspSolver for HeldKarp {
                     let s_next = s | (1 << k);
 
                     // calculate the cost to extend the path from j to k
-                    let cost = dp[s][j] + problem.distance(j + 1, k + 1) as i64;
+                    let cost = dp[s][j] + problem.try_get_distance(j + 1, k + 1)? as i64;
 
                     // update the tables if the new cost is lower
                     if cost < dp[s_next][k] {
@@ -175,18 +175,28 @@ impl TspSolver for HeldKarp {
         let full_mask = (1 << n) - 1;
 
         // get the minimum cost
-        let minimal_cost = (0..n)
-            .filter(|&j| j != start_idx) // exclude start node
-            .filter(|&j| dp[full_mask][j] != i64::MAX) // only consider valid paths
-            .map(|j| dp[full_mask][j] + problem.distance(j + 1, start_idx + 1) as i64) // add cost to return to start node
-            .min() // find the minimum cost
-            .ok_or(SolverError::NoSolution)?;
-
-        let mut last_node = (0..n)
+        let costs = (0..n)
             .filter(|&j| j != start_idx)
             .filter(|&j| dp[full_mask][j] != i64::MAX)
-            .min_by_key(|&j| dp[full_mask][j] + problem.distance(j + 1, start_idx + 1) as i64)
-            .unwrap(); // we know there is at least one valid path, so unwrap is safe here
+            .map(|j| {
+                Ok::<_, SolverError>((
+                    j,
+                    dp[full_mask][j] + problem.try_get_distance(j + 1, start_idx + 1)? as i64,
+                ))
+            })
+            .collect::<Result<Vec<_>, SolverError>>()?;
+
+        let minimal_cost = costs
+            .iter()
+            .map(|(_, cost)| *cost)
+            .min()
+            .ok_or(SolverError::NoSolution)?;
+
+        let mut last_node = costs
+            .iter()
+            .min_by_key(|(_, cost)| *cost)
+            .map(|(j, _)| *j)
+            .unwrap();
 
         // reconstruct the path
         let mut tour: Vec<usize> = Vec::new();
