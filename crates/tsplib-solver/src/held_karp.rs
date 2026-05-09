@@ -1,7 +1,5 @@
 //! A module containing the implementation of the Held-Karp algorithm for solving the Traveling Salesman Problem (TSP).
 
-use std::collections::{HashMap, HashSet};
-
 use tsplib_core::models::{ProblemInstance, TspSolution};
 
 use crate::{TspSolver, errors::SolverError};
@@ -59,42 +57,10 @@ impl TspSolver for HeldKarp {
             return Err(SolverError::DimensionExceeded);
         }
 
-        // TODO: refactor: move the ckecks for start_node and fixed edges to a separate function, since they are needed for all solvers
-        // check if start_node is valid
-        if !problem.nodes.iter().any(|n| n.id == start_node) {
-            return Err(SolverError::InvalidStartNode);
-        }
-
-        // collect all fixed edges and their targets for quick lookup
-        let fixed_edges = problem.fixed_edges.iter().flatten().collect::<Vec<_>>();
-        let fixed_edges_targets = fixed_edges
-            .iter()
-            .map(|(_, to)| *to)
-            .collect::<HashSet<usize>>();
-
-        let fixed_edge_map = fixed_edges
-            .iter()
-            .map(|(from, to)| (*from, *to))
-            .collect::<HashMap<usize, usize>>();
-
-        // check if start_node is target of a fixed edge
-        if fixed_edges_targets.contains(&start_node) {
-            return Err(SolverError::StartNodeIsFixedEdgeTarget(start_node));
-        }
-
-        // check if any node has multiple fixed edges
-        let max_fixed_edges = fixed_edges
-            .iter()
-            .fold(HashMap::new(), |mut acc, (from, _)| {
-                *acc.entry(*from).or_insert(0) += 1;
-                acc
-            })
-            .into_iter()
-            .find(|(_, count)| *count > 1);
-
-        if let Some((node_id, _)) = max_fixed_edges {
-            return Err(SolverError::MultipleFixedEdges(node_id));
-        }
+        // check if the problem instance and start node are valid
+        // and get the fixed edge map and targets for quick lookup
+        let (fixed_edge_map, fixed_edge_targets) =
+            self.try_check_problem_validity(problem, start_node)?;
 
         // number of subsets of nodes = 2^n
         let size = 1 << n;
@@ -106,7 +72,7 @@ impl TspSolver for HeldKarp {
         let mut parent = vec![vec![usize::MAX; n]; size];
 
         // vectors use 0-based indexing, but TSP nodes are 1-based,
-        // so we adjust the start_node index
+        // so the start_node index has to be adjusted
         let start_idx = start_node - 1;
 
         // the bitmask for the set of visited nodes, initially only the start node is visited
@@ -115,7 +81,7 @@ impl TspSolver for HeldKarp {
         // base case: starting at the start_node with only that node visited has a cost of 0
         dp[start_mask][start_idx] = 0;
 
-        // build table by iterating over all subsets of nodes
+        // build dp by iterating over all subsets of nodes
         // start from start_mask (lower numbers represent subsets that don't include the start node, which can be skipped)
         for s in start_mask..size {
             // skip subsets which don't include the start node
@@ -150,7 +116,7 @@ impl TspSolver for HeldKarp {
                         }
                     } else {
                         // if there is no fixed edge from j, we cannot consider nodes that are targets of fixed edges
-                        if fixed_edges_targets.contains(&(k + 1)) {
+                        if fixed_edge_targets.contains(&(k + 1)) {
                             continue;
                         }
                     }
