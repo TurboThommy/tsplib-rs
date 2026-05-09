@@ -1,6 +1,6 @@
 //! A simple greedy TSP solver that constructs a tour by always visiting the nearest unvisited node next. It also respects fixed edges if they are present in the problem instance.
 
-use std::collections::{HashMap, HashSet};
+use std::collections::HashSet;
 
 use tsplib_core::{
     enums::InstanceError,
@@ -30,36 +30,10 @@ impl TspSolver for Greedy {
         problem: &ProblemInstance,
         start_node: usize,
     ) -> Result<TspSolution, SolverError> {
-        // check if start_node is valid
-        if !problem.nodes.iter().any(|n| n.id == start_node) {
-            return Err(SolverError::InvalidStartNode);
-        }
-
-        // collect all fixed edges and their targets for quick lookup
-        let fixed_edges = problem.fixed_edges.iter().flatten().collect::<Vec<_>>();
-        let fixed_edges_targets = fixed_edges
-            .iter()
-            .map(|(_, to)| *to)
-            .collect::<HashSet<usize>>();
-
-        // check if start_node is target of a fixed edge
-        if fixed_edges_targets.contains(&start_node) {
-            return Err(SolverError::StartNodeIsFixedEdgeTarget(start_node));
-        }
-
-        // check if any node has multiple fixed edges
-        let max_fixed_edges = fixed_edges
-            .iter()
-            .fold(HashMap::new(), |mut acc, (from, _)| {
-                *acc.entry(*from).or_insert(0) += 1;
-                acc
-            })
-            .into_iter()
-            .find(|(_, count)| *count > 1);
-
-        if let Some((node_id, _)) = max_fixed_edges {
-            return Err(SolverError::MultipleFixedEdges(node_id));
-        }
+        // check if the problem instance and start node are valid
+        // and get the fixed edge map and targets for quick lookup
+        let (fixed_edge_map, fixed_edge_targets) =
+            self.try_check_problem_validity(problem, start_node)?;
 
         // create a tour starting from the start_node
         let mut tour: Vec<usize> = vec![start_node];
@@ -71,7 +45,7 @@ impl TspSolver for Greedy {
 
         while visited.len() < problem.nodes.len() {
             // follow fixed edge if one exists for the current node
-            if let Some((_, to)) = fixed_edges.iter().find(|(from, _)| *from == current_node) {
+            if let Some(to) = fixed_edge_map.get(&current_node) {
                 if visited.contains(to) {
                     return Err(SolverError::FixedEdgeToVisitedNode);
                 }
@@ -86,7 +60,7 @@ impl TspSolver for Greedy {
             let next_node = problem
                 .nodes
                 .iter()
-                .filter(|n| !visited.contains(&n.id) && !fixed_edges_targets.contains(&n.id))
+                .filter(|n| !visited.contains(&n.id) && !fixed_edge_targets.contains(&n.id))
                 .map(|n| Ok((n, problem.try_get_distance(current_node, n.id)?)))
                 .collect::<Result<Vec<_>, InstanceError>>()?
                 .into_iter()
@@ -102,7 +76,9 @@ impl TspSolver for Greedy {
                 return Err(SolverError::NoUnvisitedNodes);
             }
         }
-        total_distance += problem.try_get_distance(current_node, start_node)? as i64; // return to the starting node
+
+        // return to the starting node
+        total_distance += problem.try_get_distance(current_node, start_node)? as i64;
 
         Ok(TspSolution {
             tour,

@@ -19,6 +19,7 @@ fn main() {
 /// Tests the `parse` function by reading TSP files from the "./data" directory, parsing them, and printing the results.
 #[allow(dead_code)]
 fn test_parse() {
+    println!("Testing parse()");
     let instances = read_tsp_files("./data")
         .into_iter()
         .map(parse)
@@ -30,6 +31,7 @@ fn test_parse() {
 /// Tests the `try_parse` function by reading TSP files from the "./data" directory, attempting to parse them, and printing the results.
 #[allow(dead_code)]
 fn test_try_parse() {
+    println!("Testing try_parse()");
     let try_instances = read_tsp_files("./data")
         .into_iter()
         .map(try_parse)
@@ -45,6 +47,7 @@ fn test_try_parse() {
 /// Tests the conversion of TSP instances to graph representations and prints the sizes of the resulting graphs.
 #[allow(dead_code)]
 fn test_graph_conversion() {
+    println!("Testing graph conversion and heap size calculation");
     // only use instances with dimension <= 10000
     let tsp_instances = read_tsp_files("./data")
         .into_iter()
@@ -90,6 +93,7 @@ fn test_graph_conversion() {
 /// Tests the conversion of TSP instances with EDGE_WEIGHT_SECTION to adjacency matrices and prints the results.
 #[allow(dead_code)]
 fn test_edge_weight_matrix_conversion() {
+    println!("Testing edge weight matrix conversion");
     let tsp_instances = read_tsp_files("./data/test_data")
         .into_iter()
         .flat_map(try_parse)
@@ -107,6 +111,7 @@ fn test_edge_weight_matrix_conversion() {
 /// Tests the to_string implementation of TSPInstance by reading a TSP file, parsing it, and printing the resulting string representation.
 #[allow(dead_code)]
 fn test_instance_to_string() {
+    println!("Testing TSPInstance to_string()");
     let tsp_instance =
         try_parse(read_file("./data/linhp318.tsp")).expect("failed to read instance");
 
@@ -116,6 +121,7 @@ fn test_instance_to_string() {
 /// Tests the greedy TSP solver by creating a sample problem instance and attempting to solve it, printing the results.
 #[allow(dead_code)]
 fn test_greedy_solver() {
+    println!("Testing Greedy solver");
     let tsp_instance = try_parse(read_file("./data/burma14.tsp")).expect("failed to read instance");
     let problem_instance: ProblemInstance =
         tsp_instance.try_into().expect("failed to convert instance");
@@ -131,6 +137,7 @@ fn test_greedy_solver() {
 
 #[allow(dead_code)]
 fn test_held_karp_solver() {
+    println!("Testing Held-Karp solver");
     let tsp_instance = try_parse(read_file("./data/burma14.tsp")).expect("failed to read instance");
     let problem_instance: ProblemInstance =
         tsp_instance.try_into().expect("failed to convert instance");
