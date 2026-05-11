@@ -1,5 +1,7 @@
 //! A module containing the implementation of the Held-Karp algorithm for solving the Traveling Salesman Problem (TSP).
 
+use std::collections::{HashMap, HashSet};
+
 use tsplib_core::models::{ProblemInstance, TspSolution};
 
 use crate::{TspSolver, errors::SolverError};
@@ -11,6 +13,9 @@ pub struct HeldKarp {
     /// the memory usage is O(n * 2^n) * size of an integer
     max_dimension: usize,
 }
+
+type DpTable = Vec<Vec<i64>>;
+type ParentTable = Vec<Vec<usize>>;
 
 impl HeldKarp {
     /// Creates a new instance of the HeldKarp solver with the specified maximum dimension.
@@ -29,39 +34,28 @@ impl HeldKarp {
         }
         Ok(Self { max_dimension })
     }
-}
 
-impl TspSolver for HeldKarp {
-    /// Solves the TSP problem using the Held-Karp algorithm, starting from the specified node.
-    /// The algorithm uses dynamic programming to find the optimal tour by building up solutions for subsets of nodes.
-    /// It also respects fixed edges if they exist in the problem instance.
+    /// Builds the dynamic programming (DP) and parent tables for the Held-Karp algorithm based on the given problem instance and fixed edge constraints.
     ///
     /// # Arguments
     /// * `problem` - A reference to the `ProblemInstance` representing the TSP problem to be solved.
-    /// * `start_node` - The ID of the node from which the tour should start.
+    /// * `n` - The number of nodes in the problem instance.
+    /// * `start_idx` - The index of the starting node (0-based).
+    /// * `fixed_edge_map` - A `HashMap` mapping each node ID to its fixed edge target (if it has one).
+    /// * `fixed_edge_targets` - A `HashSet` containing the IDs of all nodes that are targets of fixed edges.
     ///
     /// # Returns
-    /// * `Result<TspSolution, SolverError>` - On success, returns a `TspSolution` containing the optimal tour and its total cost.
+    /// * `Result<(DpTable, ParentTable), SolverError>` - On success, returns a tuple containing the DP table and the parent table used for reconstructing the optimal tour.
     ///   On failure, returns a `SolverError` indicating the reason for the failure
-    ///   (e.g., invalid start node, dimension exceeded, no solution found, etc.).
-    fn try_solve(
+    ///   (e.g., distance retrieval error, invalid problem instance, etc.).
+    fn try_build_tables(
         &self,
         problem: &ProblemInstance,
-        start_node: usize,
-    ) -> Result<TspSolution, SolverError> {
-        // number of nodes in the problem
-        let n = problem.nodes.len();
-
-        // check if dimension is within limits
-        if n > self.max_dimension {
-            return Err(SolverError::DimensionExceeded);
-        }
-
-        // check if the problem instance and start node are valid
-        // and get the fixed edge map and targets for quick lookup
-        let (fixed_edge_map, fixed_edge_targets) =
-            self.try_check_problem_validity(problem, start_node)?;
-
+        n: usize,
+        start_idx: usize,
+        fixed_edge_map: &HashMap<usize, usize>,
+        fixed_edge_targets: &HashSet<usize>,
+    ) -> Result<(DpTable, ParentTable), SolverError> {
         // number of subsets of nodes = 2^n
         let size = 1 << n;
 
@@ -70,10 +64,6 @@ impl TspSolver for HeldKarp {
 
         // table to reconstruct the path, stores the previous node for each state
         let mut parent = vec![vec![usize::MAX; n]; size];
-
-        // vectors use 0-based indexing, but TSP nodes are 1-based,
-        // so the start_node index has to be adjusted
-        let start_idx = start_node - 1;
 
         // the bitmask for the set of visited nodes, initially only the start node is visited
         let start_mask = 1 << start_idx;
@@ -136,11 +126,31 @@ impl TspSolver for HeldKarp {
             }
         }
 
-        // find the minimum cost to return to the start node after visiting all nodes
-        // all nodes visited
-        let full_mask = (1 << n) - 1;
+        Ok((dp, parent))
+    }
 
-        // get the minimum cost
+    /// Finds the minimal tour cost and the last node in the optimal tour after visiting all nodes, based on the completed DP table.
+    ///
+    /// # Arguments
+    /// * `problem` - A reference to the `ProblemInstance` representing the TSP problem to be solved.
+    /// * `dp` - A reference to the completed DP table containing the minimum costs for each subset of nodes and last node.
+    /// * `n` - The number of nodes in the problem instance.
+    /// * `start_idx` - The index of the starting node (0-based).
+    /// * `full_mask` - The bitmask representing the subset of all nodes visited (i.e., when all nodes are visited).
+    ///
+    /// # Returns
+    /// * `Result<(i64, usize), SolverError>` - On success, returns a tuple containing the minimal tour cost and the index of the last node in the optimal tour.
+    ///   On failure, returns a `SolverError` indicating the reason for the failure
+    ///   (e.g., no solution found, distance retrieval error, etc.).
+    fn try_find_minimal_tour(
+        &self,
+        problem: &ProblemInstance,
+        dp: &DpTable,
+        n: usize,
+        start_idx: usize,
+        full_mask: usize,
+    ) -> Result<(i64, usize), SolverError> {
+        // find the minimum cost to return to the start node after visiting all nodes
         let costs = (0..n)
             .filter(|&j| j != start_idx)
             .filter(|&j| dp[full_mask][j] != i64::MAX)
@@ -152,30 +162,107 @@ impl TspSolver for HeldKarp {
             })
             .collect::<Result<Vec<_>, SolverError>>()?;
 
-        let minimal_cost = costs
-            .iter()
-            .map(|(_, cost)| *cost)
-            .min()
-            .ok_or(SolverError::NoSolution)?;
-
-        let mut last_node = costs
+        let (last_node, minimal_cost) = costs
             .iter()
             .min_by_key(|(_, cost)| *cost)
-            .map(|(j, _)| *j)
-            .unwrap();
+            .map(|&(j, cost)| (j, cost))
+            .ok_or(SolverError::NoSolution)?;
 
-        // reconstruct the path
+        Ok((minimal_cost, last_node))
+    }
+
+    /// Reconstructs the optimal tour based on the parent table generated during the DP table construction.
+    ///
+    /// # Arguments
+    /// * `parent` - A reference to the parent table containing the previous node for each state in the DP table.
+    /// * `start_node` - The ID of the starting node (1-based).
+    /// * `start_idx` - The index of the starting node (0-based).
+    /// * `full_mask` - The bitmask representing the subset of all nodes visited (i.e., when all nodes are visited).
+    /// * `last_node` - The index of the last node in the optimal tour (0-based).
+    ///
+    /// # Returns
+    /// * `Result<Vec<usize>, SolverError>` - On success, returns a vector containing the sequence of node IDs in the optimal tour, starting and ending at the specified start node.
+    ///   On failure, returns a `SolverError` indicating the reason for the failure
+    fn try_reconstruct_tour(
+        &self,
+        parent: &ParentTable,
+        start_node: usize,
+        start_idx: usize,
+        full_mask: usize,
+        mut last_node: usize,
+    ) -> Result<Vec<usize>, SolverError> {
         let mut tour: Vec<usize> = Vec::new();
         let mut current_mask = full_mask;
 
+        // reconstruct the path
         while last_node != start_idx {
             tour.push(last_node + 1); // convert back to 1-based indexing
             let previous_node = parent[current_mask][last_node];
             current_mask ^= 1 << last_node; // remove last_node from the mask
             last_node = previous_node;
+
+            // invalid entry in the parent table
+            // this can only happen if the dp table was not properly filled
+            if last_node == usize::MAX {
+                return Err(SolverError::InvalidParentTable);
+            }
         }
         tour.push(start_node); // add the start node at the end to complete the tour
         tour.reverse(); // reverse the tour to get the correct order
+
+        Ok(tour)
+    }
+}
+
+impl TspSolver for HeldKarp {
+    /// Solves the TSP problem using the Held-Karp algorithm, starting from the specified node.
+    /// The algorithm uses dynamic programming to find the optimal tour by building up solutions for subsets of nodes.
+    /// It also respects fixed edges if they exist in the problem instance.
+    ///
+    /// # Arguments
+    /// * `problem` - A reference to the `ProblemInstance` representing the TSP problem to be solved.
+    /// * `start_node` - The ID of the node from which the tour should start.
+    ///
+    /// # Returns
+    /// * `Result<TspSolution, SolverError>` - On success, returns a `TspSolution` containing the optimal tour and its total cost.
+    ///   On failure, returns a `SolverError` indicating the reason for the failure
+    ///   (e.g., invalid start node, dimension exceeded, no solution found, etc.).
+    fn try_solve(
+        &self,
+        problem: &ProblemInstance,
+        start_node: usize,
+    ) -> Result<TspSolution, SolverError> {
+        // number of nodes in the problem
+        let n = problem.nodes.len();
+
+        // check if dimension is within limits
+        if n > self.max_dimension {
+            return Err(SolverError::DimensionExceeded);
+        }
+
+        // check if the problem instance and start node are valid
+        // and get the fixed edge map and targets for quick lookup
+        let (fixed_edge_map, fixed_edge_targets) =
+            self.try_check_problem_validity(problem, start_node)?;
+
+        // vectors use 0-based indexing, but TSP nodes are 1-based,
+        // so the start_node index has to be adjusted
+        let start_idx = start_node - 1;
+
+        // the bitmask for the set of visited nodes when all nodes are visited
+        let full_mask = (1 << n) - 1;
+
+        // build the dp and parent tables
+        let (dp, parent) =
+            self.try_build_tables(problem, n, start_idx, &fixed_edge_map, &fixed_edge_targets)?;
+
+        // find the minimal tour cost and the last node in the optimal tour
+        let (minimal_cost, last_node) =
+            self.try_find_minimal_tour(problem, &dp, n, start_idx, full_mask)?;
+
+        // reconstruct the optimal tour based on the last node and the parent table
+        let tour =
+            self.try_reconstruct_tour(&parent, start_node, start_idx, full_mask, last_node)?;
 
         Ok(TspSolution {
             tour,
