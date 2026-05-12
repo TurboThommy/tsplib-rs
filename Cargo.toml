@@ -1,3 +1,9 @@
 [workspace]
-members = ["crates/tsplib-core", "crates/tsplib-dev-runner", "crates/tsplib-parser", "crates/tsplib-solver"]
+members = [
+    "crates/tsplib-core",
+    "crates/tsplib-dev-runner",
+    "crates/tsplib-parser",
+    "crates/tsplib-server",
+    "crates/tsplib-solver",
+]
 resolver = "3"
