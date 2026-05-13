@@ -1,3 +1,4 @@
+//! Module containing the specific error types that can occur during the operation of the TSPLIB server.
 use axum::{http::StatusCode, response::IntoResponse};
 use thiserror::Error;
 
