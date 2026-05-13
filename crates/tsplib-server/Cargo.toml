@@ -8,5 +8,6 @@ tsplib-core = { workspace = true }
 axum = "0.8.9"
 serde = { workspace = true }
 serde_json = { workspace = true }
+thiserror = { workspace = true }
 tokio = { version = "1.52.3", features = ["full"] }
 strum = { workspace = true }
