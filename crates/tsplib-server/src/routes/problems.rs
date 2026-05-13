@@ -1,15 +1,16 @@
-use crate::errors::ServerError;
+//! Handlers for the REST API routes related to problem instances.
+use crate::{errors::ServerError, state::AppState};
 
 use axum::{Json, Router, routing::get};
 use std::fs;
 
 /// Router for problem-related endpoints.
-pub fn router() -> Router {
+pub fn router() -> Router<AppState> {
     Router::new().route("/problems", get(get_problems))
 }
 
 /// Get the list of available TSP problem instances from the "./data" directory.
-pub async fn get_problems() -> Result<Json<Vec<String>>, ServerError> {
+async fn get_problems() -> Result<Json<Vec<String>>, ServerError> {
     let problems = fs::read_dir("./data")?
         .filter_map(|entry| {
             let entry = entry.ok()?;

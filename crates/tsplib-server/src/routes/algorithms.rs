@@ -3,12 +3,14 @@ use axum::{Json, Router, routing::get};
 use strum::IntoEnumIterator;
 use tsplib_core::enums::AlgorithmType;
 
+use crate::state::AppState;
+
 /// Router for algorithm-related endpoints.
-pub fn router() -> Router {
+pub fn router() -> Router<AppState> {
     Router::new().route("/algorithms", get(get_algorithms))
 }
 
 /// Get the list of available algorithms.
-pub async fn get_algorithms() -> Json<Vec<AlgorithmType>> {
+async fn get_algorithms() -> Json<Vec<AlgorithmType>> {
     Json(AlgorithmType::iter().collect())
 }

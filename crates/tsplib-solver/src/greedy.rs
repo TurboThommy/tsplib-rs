@@ -14,6 +14,19 @@ use crate::{TspSolver, errors::SolverError};
 /// It also respects fixed edges if they are present in the problem instance.
 pub struct Greedy {}
 
+impl Greedy {
+    /// Creates a new instance of the Greedy TSP solver.
+    pub fn new() -> Self {
+        Greedy {}
+    }
+}
+
+impl Default for Greedy {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl TspSolver for Greedy {
     /// Solves the TSP problem using a greedy approach, starting from the specified node.
     /// It follows fixed edges if they exist and otherwise selects the nearest unvisited node.

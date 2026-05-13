@@ -2,15 +2,20 @@
 mod errors;
 mod models;
 mod routes;
+mod state;
 
 use axum::{Router, http::StatusCode, routing::get};
 
 #[tokio::main]
 async fn main() {
+    let state = state::AppState::new();
+
     let app = Router::new()
         .route("/", get(health_check))
         .merge(routes::problems::router())
-        .merge(routes::algorithms::router());
+        .merge(routes::algorithms::router())
+        .merge(routes::solver::router())
+        .with_state(state);
 
     let listener = tokio::net::TcpListener::bind("0.0.0.0:3000").await.unwrap();
 
