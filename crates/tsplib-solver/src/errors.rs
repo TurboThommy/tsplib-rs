@@ -27,6 +27,8 @@ pub enum SolverError {
     DistanceRetrievalError(String),
     #[error("Invalid parent table entry during tour reconstruction.")]
     InvalidParentTable,
+    #[error("Solver was cancelled.")]
+    Cancelled,
 }
 
 impl From<InstanceError> for SolverError {

@@ -3,6 +3,7 @@
 use std::collections::HashSet;
 
 use tsplib_core::{
+    context::ExecutionContext,
     enums::InstanceError,
     models::{ProblemInstance, TspSolution},
 };
@@ -38,10 +39,11 @@ impl TspSolver for Greedy {
     /// # Returns
     /// * `Result<TspSolution, SolverError>` - On success, returns a `TspSolution` containing the tour and its total cost.
     ///   On failure, returns a `SolverError` indicating the reason for the failure.
-    fn try_solve(
+    fn try_solve_with_context(
         &self,
         problem: &ProblemInstance,
         start_node: usize,
+        ctx: ExecutionContext,
     ) -> Result<TspSolution, SolverError> {
         // check if the problem instance and start node are valid
         // and get the fixed edge map and targets for quick lookup
@@ -57,6 +59,11 @@ impl TspSolver for Greedy {
         let mut total_distance: i64 = 0;
 
         while visited.len() < problem.nodes.len() {
+            // check for cancellation
+            if ctx.is_cancelled() {
+                return Err(SolverError::Cancelled);
+            }
+
             // follow fixed edge if one exists for the current node
             if let Some(to) = fixed_edge_map.get(&current_node) {
                 if visited.contains(to) {

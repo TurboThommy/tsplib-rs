@@ -1,6 +1,7 @@
 //! This module defines the `TSPLIBInstance` struct, which represents a TSP instance as defined in the TSPLIB format.
 //! The struct contains all required and optional fields, as well as the data sections of the instance.
 //! It also provides methods for extracting nodes and calculating the adjacency matrix based on the available data sections and edge weight type.
+use crate::context::ExecutionContext;
 use crate::distances::{
     distance_att, distance_ceil_2d, distance_euc_2d, distance_geo, distance_man_2d, distance_max_2d,
 };
@@ -10,7 +11,7 @@ use crate::enums::{
 };
 
 use crate::enums::ConversionError;
-use crate::models::Node;
+use crate::models::{Node, ProblemInstance};
 
 use std::{fmt, vec};
 
@@ -97,6 +98,38 @@ impl fmt::Display for TSPLIBInstance {
 }
 
 impl TSPLIBInstance {
+    /// Converts the `TSPLIBInstance` into a `ProblemInstance` by extracting the nodes and calculating the adjacency matrix based on the available data sections and edge weight type.
+    /// The conversion process may involve checking for cancellation through the provided execution context, allowing for responsive cancellation of long-running operations.
+    ///
+    /// # Arguments
+    /// * `ctx` - The execution context, which can be used to check for cancellation during the conversion process.
+    ///   If the execution is cancelled, the function will return a `ConversionError::Cancelled` error.
+    ///
+    /// # Returns
+    /// * `Result<ProblemInstance, ConversionError>` - A result containing the converted `ProblemInstance` if successful, or a `ConversionError`
+    ///   if the conversion fails due to missing required data sections, unsupported edge weight types, or if the execution was cancelled.
+    pub fn try_into_problem_instance(
+        &self,
+        ctx: ExecutionContext,
+    ) -> Result<ProblemInstance, ConversionError> {
+        let nodes = self.try_extract_nodes()?;
+        let adjacency_matrix = self.try_calculate_adjacency_matrix(ctx)?;
+
+        // check for fixed edges
+        let fixed_edges = self.data_sections.iter().find_map(|s| match s {
+            DataSection::FixedEdgesSection(section) => Some(section.clone()),
+            _ => None,
+        });
+
+        Ok(ProblemInstance {
+            name: self.name.clone(),
+            problem_type: self.problem_type.clone(),
+            nodes,
+            adjacency_matrix,
+            fixed_edges,
+        })
+    }
+
     /// Extracts the nodes from the TSP instance based on the available data sections and edge weight type.
     /// The extraction logic depends on the edge weight type and the presence of specific data sections
     /// (e.g., NODE_COORD_SECTION, EDGE_WEIGHT_SECTION, DISPLAY_DATA_SECTION).
@@ -125,13 +158,20 @@ impl TSPLIBInstance {
 
     /// Calculates the adjacency matrix of edge weights for the TSP instance based on the available data sections and edge weight type.
     ///
+    /// # Arguments
+    /// * `ctx` - The execution context, which can be used to check for cancellation during the calculation of the adjacency matrix.
+    ///   If the execution is cancelled, the function will return a `ConversionError::Cancelled` error.
+    ///
     /// # Returns
     /// * `Result<Vec<Vec<i32>>, ConversionError>` - A result containing the adjacency matrix if successful,
     ///   or a `ConversionError` if the required data sections are missing
-    pub(super) fn try_calculate_adjacency_matrix(&self) -> Result<Vec<Vec<i32>>, ConversionError> {
+    pub(super) fn try_calculate_adjacency_matrix(
+        &self,
+        ctx: ExecutionContext<'_>,
+    ) -> Result<Vec<Vec<i32>>, ConversionError> {
         match self.edge_weight_type {
             // EDGE_WEIGHT_SECTION
-            EdgeWeightType::Explicit => Ok(self.try_calculate_adjacency_matrix_edge_weights()?),
+            EdgeWeightType::Explicit => Ok(self.try_calculate_adjacency_matrix_edge_weights(ctx)?),
 
             // NODE_COORD_SECTION with 2D coordinates
             EdgeWeightType::Euc2D
@@ -139,7 +179,7 @@ impl TSPLIBInstance {
             | EdgeWeightType::Man2D
             | EdgeWeightType::Ceil2D
             | EdgeWeightType::Geo
-            | EdgeWeightType::Att => Ok(self.try_calculate_adjacency_matrix_2d()?),
+            | EdgeWeightType::Att => Ok(self.try_calculate_adjacency_matrix_2d(ctx)?),
 
             _ => Err(ConversionError::UnsupportedEdgeWeightType(
                 self.edge_weight_type,
@@ -149,10 +189,17 @@ impl TSPLIBInstance {
 
     /// Calculates the adjacency matrix of edge weights for the TSP instance based on the NODE_COORD_SECTION data, assuming 2D coordinates.
     ///
+    /// # Arguments
+    /// * `ctx` - The execution context, which can be used to check for cancellation during the calculation of the adjacency matrix.
+    ///   If the execution is cancelled, the function will return a `ConversionError::Cancelled` error.
+    ///
     /// # Returns
     /// * `Result<Vec<Vec<f64>>, ConversionError>` - A result containing the adjacency matrix if successful,
     ///   or a `ConversionError` if the required NODE_COORD_SECTION is missing in the instance data.
-    fn try_calculate_adjacency_matrix_2d(&self) -> Result<Vec<Vec<i32>>, ConversionError> {
+    fn try_calculate_adjacency_matrix_2d(
+        &self,
+        ctx: ExecutionContext<'_>,
+    ) -> Result<Vec<Vec<i32>>, ConversionError> {
         // check for NODE_COORD_SECTION
         let node_coord_section = self.try_get_node_coord_section_2d()?;
 
@@ -174,6 +221,11 @@ impl TSPLIBInstance {
         // construct adjacency matrix by calculating the distance
         let mut matrix = vec![vec![0; self.dimension]; self.dimension];
         for i in 0..node_coord_section.len() {
+            // check for cancellation every 100 iterations to avoid excessive overhead while still allowing for responsive cancellation
+            if i % 100 == 0 && ctx.is_cancelled() {
+                return Err(ConversionError::Cancelled);
+            }
+
             for j in i..node_coord_section.len() {
                 let node_i = node_coord_section[i];
                 let node_j = node_coord_section[j];
@@ -189,70 +241,71 @@ impl TSPLIBInstance {
 
     /// Calculates the adjacency matrix of edge weights for the TSP instance based on the EDGE_WEIGHT_SECTION data.
     ///
+    /// # Arguments
+    /// * `ctx` - The execution context, which can be used to check for cancellation during the calculation of the adjacency matrix.
+    ///   If the execution is cancelled, the function will return a `ConversionError::Cancelled` error.
+    ///
     /// # Returns
     /// * `Result<Vec<Vec<f64>>, ConversionError>` - A result containing the adjacency matrix if successful,
     ///   or a `ConversionError` if the required data section is missing or if the edge weight format is unsupported for the given edge weight type.
     pub fn try_calculate_adjacency_matrix_edge_weights(
         &self,
+        ctx: ExecutionContext<'_>,
     ) -> Result<Vec<Vec<i32>>, ConversionError> {
         // check for EDGE_WEIGHT_SECTION
         let edge_weight_section = self.try_get_edge_weight_section()?;
 
-        let adjacency_matrix = match self.edge_weight_format {
+        match self.edge_weight_format {
             // Weights are given by a full matrix
             Some(EdgeWeightFormat::FullMatrix) => {
-                self.get_adjacency_matrix_full_matrix(&edge_weight_section)
+                self.try_get_adjacency_matrix_full_matrix(&edge_weight_section, ctx)
             }
 
             // Upper triangular matrix (row-wise without diagonal entries)
             Some(EdgeWeightFormat::UpperRow) => {
-                self.get_adjacency_matrix_upper_row(&edge_weight_section)
+                self.try_get_adjacency_matrix_upper_row(&edge_weight_section, ctx)
             }
 
             // Lower triangular matrix (row-wise without diagonal entries)
             Some(EdgeWeightFormat::LowerRow) => {
-                self.get_adjacency_matrix_lower_row(&edge_weight_section)
+                self.try_get_adjacency_matrix_lower_row(&edge_weight_section, ctx)
             }
 
             // Upper triangular matrix (row-wise including diagonal entries)
             Some(EdgeWeightFormat::UpperDiagRow) => {
-                self.get_adjacency_matrix_upper_diag_row(&edge_weight_section)
+                self.try_get_adjacency_matrix_upper_diag_row(&edge_weight_section, ctx)
             }
 
             // Lower triangular matrix (row-wise including diagonal entries)
             Some(EdgeWeightFormat::LowerDiagRow) => {
-                self.get_adjacency_matrix_lower_diag_row(&edge_weight_section)
+                self.try_get_adjacency_matrix_lower_diag_row(&edge_weight_section, ctx)
             }
 
             // Upper triangular matrix (column-wise without diagonal entries)
             Some(EdgeWeightFormat::UpperCol) => {
-                self.get_adjacenty_matrix_upper_col(&edge_weight_section)
+                self.try_get_adjacenty_matrix_upper_col(&edge_weight_section, ctx)
             }
 
             // Lower triangular matrix (column-wise without diagonal entries)
             Some(EdgeWeightFormat::LowerCol) => {
-                self.get_adjacency_matrix_lower_col(&edge_weight_section)
+                self.try_get_adjacency_matrix_lower_col(&edge_weight_section, ctx)
             }
 
             // Upper triangular matrix (column-wise including diagonal entries)
             Some(EdgeWeightFormat::UpperDiagCol) => {
-                self.get_adjacency_matrix_upper_diag_col(&edge_weight_section)
+                self.try_get_adjacency_matrix_upper_diag_col(&edge_weight_section, ctx)
             }
 
             // Lower triangular matrix (column-wise including diagonal entries)
             Some(EdgeWeightFormat::LowerDiagCol) => {
-                self.get_adjacency_matrix_lower_diag_col(&edge_weight_section)
+                self.try_get_adjacency_matrix_lower_diag_col(&edge_weight_section, ctx)
             }
 
-            _ => {
-                return Err(ConversionError::UnsupportedEdgeWeightFormat(
-                    self.edge_weight_format,
-                    self.edge_weight_type,
-                ));
-            }
-        };
-
-        Ok(adjacency_matrix)
+            _ => Err(ConversionError::UnsupportedEdgeWeightFormat(
+                self.edge_weight_format,
+                self.edge_weight_type,
+            )),
+        }
     }
 
     /// Extracts the nodes from the NODE_COORD_SECTION of the TSP instance and returns them as a vector of `Node` structs.
@@ -382,17 +435,28 @@ impl TSPLIBInstance {
     ///
     /// # Arguments
     /// * `edge_weight_section` - A slice containing the full adjacency matrix.
+    /// * `ctx` - The execution context, which can be used to check for cancellation during the construction of the adjacency matrix.
     ///
     /// # Returns
     /// * `Vec<Vec<i32>>` - The adjacency matrix representing the graph.
-    fn get_adjacency_matrix_full_matrix(&self, edge_weight_section: &[i32]) -> Vec<Vec<i32>> {
+    fn try_get_adjacency_matrix_full_matrix(
+        &self,
+        edge_weight_section: &[i32],
+        ctx: ExecutionContext,
+    ) -> Result<Vec<Vec<i32>>, ConversionError> {
         let mut matrix = vec![vec![0; self.dimension]; self.dimension];
-        (0..self.dimension).for_each(|i| {
-            (0..self.dimension).for_each(|j| {
+
+        for i in 0..self.dimension {
+            // check for cancellation every 100 iterations to avoid excessive overhead while still allowing for responsive cancellation
+            if i % 100 == 0 && ctx.is_cancelled() {
+                return Err(ConversionError::Cancelled);
+            }
+
+            for j in 0..self.dimension {
                 matrix[i][j] = edge_weight_section[i * self.dimension + j];
-            })
-        });
-        matrix
+            }
+        }
+        Ok(matrix)
     }
 
     /// Constructs the adjacency matrix from the EDGE_WEIGHT_SECTION when the edge weights are given by an upper
@@ -401,20 +465,32 @@ impl TSPLIBInstance {
     /// # Arguments
     /// * `edge_weight_section` - A slice containing the upper triangular part of the adjacency matrix
     ///   (without diagonal entries) with row major ordering.
+    /// * `ctx` - The execution context, which can be used to check for cancellation during the construction of the adjacency matrix.
     ///
     /// # Returns
     /// * `Vec<Vec<i32>>` - The adjacency matrix representing the graph.
-    fn get_adjacency_matrix_upper_row(&self, edge_weight_section: &[i32]) -> Vec<Vec<i32>> {
+    #[allow(clippy::needless_range_loop)]
+    fn try_get_adjacency_matrix_upper_row(
+        &self,
+        edge_weight_section: &[i32],
+        ctx: ExecutionContext,
+    ) -> Result<Vec<Vec<i32>>, ConversionError> {
         let mut matrix = vec![vec![0; self.dimension]; self.dimension];
-        (0..self.dimension - 1).for_each(|i| {
-            (i + 1..self.dimension).for_each(|j| {
+
+        for i in 0..self.dimension - 1 {
+            // check for cancellation every 100 iterations to avoid excessive overhead while still allowing for responsive cancellation
+            if i % 100 == 0 && ctx.is_cancelled() {
+                return Err(ConversionError::Cancelled);
+            }
+
+            for j in i + 1..self.dimension {
                 let idx = (i * self.dimension + j) - (i + 1) * (i + 2) / 2;
                 matrix[i][j] = edge_weight_section[idx];
                 matrix[j][i] = edge_weight_section[idx];
-            })
-        });
+            }
+        }
 
-        matrix
+        Ok(matrix)
     }
 
     /// Constructs the adjacency matrix from the EDGE_WEIGHT_SECTION when the edge weights are given by a lower
@@ -423,19 +499,31 @@ impl TSPLIBInstance {
     /// # Arguments
     /// * `edge_weight_section` - A slice containing the lower triangular part of the adjacency matrix
     ///   (without diagonal entries) with row major ordering.
-    ///
+    /// * `ctx` - The execution context, which can be used to check for cancellation during the construction of the adjacency matrix.
     /// # Returns
     /// * `Vec<Vec<i32>>` - The adjacency matrix representing the graph.
-    fn get_adjacency_matrix_lower_row(&self, edge_weight_section: &[i32]) -> Vec<Vec<i32>> {
+    #[allow(clippy::needless_range_loop)]
+    fn try_get_adjacency_matrix_lower_row(
+        &self,
+        edge_weight_section: &[i32],
+        ctx: ExecutionContext,
+    ) -> Result<Vec<Vec<i32>>, ConversionError> {
         let mut matrix = vec![vec![0; self.dimension]; self.dimension];
-        (1..self.dimension).for_each(|i| {
-            (0..i).for_each(|j| {
+
+        for i in 1..self.dimension {
+            // check for cancellation every 100 iterations to avoid excessive overhead while still allowing for responsive cancellation
+            if i % 100 == 0 && ctx.is_cancelled() {
+                return Err(ConversionError::Cancelled);
+            }
+
+            for j in 0..i {
                 let idx = (i * (i - 1)) / 2 + j;
                 matrix[i][j] = edge_weight_section[idx];
                 matrix[j][i] = edge_weight_section[idx];
-            })
-        });
-        matrix
+            }
+        }
+
+        Ok(matrix)
     }
 
     /// Constructs the adjacency matrix from the EDGE_WEIGHT_SECTION when the edge weights are given by an upper
@@ -444,19 +532,31 @@ impl TSPLIBInstance {
     /// # Arguments
     /// * `edge_weight_section` - A slice containing the upper triangular part of the adjacency matrix
     ///   (including diagonal entries) with row major ordering.
+    /// * `ctx` - The execution context, which can be used to check for cancellation during the construction of the adjacency matrix.
     ///
     /// # Returns
     /// * `Vec<Vec<i32>>` - The adjacency matrix representing the graph.
-    fn get_adjacency_matrix_upper_diag_row(&self, edge_weight_section: &[i32]) -> Vec<Vec<i32>> {
+    #[allow(clippy::needless_range_loop)]
+    fn try_get_adjacency_matrix_upper_diag_row(
+        &self,
+        edge_weight_section: &[i32],
+        ctx: ExecutionContext,
+    ) -> Result<Vec<Vec<i32>>, ConversionError> {
         let mut matrix = vec![vec![0; self.dimension]; self.dimension];
-        (0..self.dimension).for_each(|i| {
-            (i..self.dimension).for_each(|j| {
+
+        for i in 0..self.dimension {
+            // check for cancellation every 100 iterations to avoid excessive overhead while still allowing for responsive cancellation
+            if i % 100 == 0 && ctx.is_cancelled() {
+                return Err(ConversionError::Cancelled);
+            }
+
+            for j in i..self.dimension {
                 let idx = (i * self.dimension + j) - (i * (i + 1)) / 2;
                 matrix[i][j] = edge_weight_section[idx];
                 matrix[j][i] = edge_weight_section[idx];
-            })
-        });
-        matrix
+            }
+        }
+        Ok(matrix)
     }
 
     /// Constructs the adjacency matrix from the EDGE_WEIGHT_SECTION when the edge weights are given by a lower
@@ -465,19 +565,32 @@ impl TSPLIBInstance {
     /// # Arguments
     /// * `edge_weight_section` - A slice containing the lower triangular part of the adjacency matrix
     ///   (including diagonal entries) with row major ordering.
+    /// * `ctx` - The execution context, which can be used to check for cancellation during the construction of the adjacency matrix.
     ///
     /// # Returns
     /// * `Vec<Vec<i32>>` - The adjacency matrix representing the graph.
-    fn get_adjacency_matrix_lower_diag_row(&self, edge_weight_section: &[i32]) -> Vec<Vec<i32>> {
+    #[allow(clippy::needless_range_loop)]
+    fn try_get_adjacency_matrix_lower_diag_row(
+        &self,
+        edge_weight_section: &[i32],
+        ctx: ExecutionContext,
+    ) -> Result<Vec<Vec<i32>>, ConversionError> {
         let mut matrix = vec![vec![0; self.dimension]; self.dimension];
-        (0..self.dimension).for_each(|i| {
-            (0..=i).for_each(|j| {
+
+        for i in 0..self.dimension {
+            // check for cancellation every 100 iterations to avoid excessive overhead while still allowing for responsive cancellation
+            if i % 100 == 0 && ctx.is_cancelled() {
+                return Err(ConversionError::Cancelled);
+            }
+
+            for j in 0..=i {
                 let idx = (i * (i + 1)) / 2 + j;
                 matrix[i][j] = edge_weight_section[idx];
                 matrix[j][i] = edge_weight_section[idx];
-            })
-        });
-        matrix
+            }
+        }
+
+        Ok(matrix)
     }
 
     /// Constructs the adjacency matrix from the EDGE_WEIGHT_SECTION when the edge weights are given by an upper
@@ -486,19 +599,32 @@ impl TSPLIBInstance {
     /// # Arguments
     /// * `edge_weight_section` - A slice containing the upper triangular part of the adjacency matrix
     ///   (without diagonal entries) with column major ordering.
+    /// * `ctx` - The execution context, which can be used to check for cancellation during the construction of the adjacency matrix.
     ///
     /// # Returns
     /// * `Vec<Vec<i32>>` - The adjacency matrix representing the graph.
-    fn get_adjacenty_matrix_upper_col(&self, edge_weight_section: &[i32]) -> Vec<Vec<i32>> {
+    #[allow(clippy::needless_range_loop)]
+    fn try_get_adjacenty_matrix_upper_col(
+        &self,
+        edge_weight_section: &[i32],
+        ctx: ExecutionContext,
+    ) -> Result<Vec<Vec<i32>>, ConversionError> {
         let mut matrix = vec![vec![0; self.dimension]; self.dimension];
-        (1..self.dimension).for_each(|j| {
-            (0..j).for_each(|i| {
+
+        for j in 1..self.dimension {
+            // check for cancellation every 100 iterations to avoid excessive overhead while still allowing for responsive cancellation
+            if j % 100 == 0 && ctx.is_cancelled() {
+                return Err(ConversionError::Cancelled);
+            }
+
+            for i in 0..j {
                 let idx = (j * (j - 1)) / 2 + i;
                 matrix[i][j] = edge_weight_section[idx];
                 matrix[j][i] = edge_weight_section[idx];
-            })
-        });
-        matrix
+            }
+        }
+
+        Ok(matrix)
     }
 
     /// Constructs the adjacency matrix from the EDGE_WEIGHT_SECTION when the edge weights are given by a lower
@@ -507,19 +633,32 @@ impl TSPLIBInstance {
     /// # Arguments
     /// * `edge_weight_section` - A slice containing the lower triangular part of the adjacency matrix
     ///   (without diagonal entries) with column major ordering.
+    /// * `ctx` - The execution context, which can be used to check for cancellation during the construction of the adjacency matrix.
     ///
     /// # Returns
     /// * `Vec<Vec<i32>>` - The adjacency matrix representing the graph.
-    fn get_adjacency_matrix_lower_col(&self, edge_weight_section: &[i32]) -> Vec<Vec<i32>> {
+    #[allow(clippy::needless_range_loop)]
+    fn try_get_adjacency_matrix_lower_col(
+        &self,
+        edge_weight_section: &[i32],
+        ctx: ExecutionContext,
+    ) -> Result<Vec<Vec<i32>>, ConversionError> {
         let mut matrix = vec![vec![0; self.dimension]; self.dimension];
-        (0..self.dimension - 1).for_each(|j| {
-            (j + 1..self.dimension).for_each(|i| {
+
+        for j in 0..self.dimension - 1 {
+            // check for cancellation every 100 iterations to avoid excessive overhead while still allowing for responsive cancellation
+            if j % 100 == 0 && ctx.is_cancelled() {
+                return Err(ConversionError::Cancelled);
+            }
+
+            for i in j + 1..self.dimension {
                 let idx = j * (2 * self.dimension - j - 1) / 2 + (i - j - 1);
                 matrix[i][j] = edge_weight_section[idx];
                 matrix[j][i] = edge_weight_section[idx];
-            })
-        });
-        matrix
+            }
+        }
+
+        Ok(matrix)
     }
 
     /// Constructs the adjacency matrix from the EDGE_WEIGHT_SECTION when the edge weights are given by an upper
@@ -528,19 +667,32 @@ impl TSPLIBInstance {
     /// # Arguments
     /// * `edge_weight_section` - A slice containing the upper triangular part of the adjacency matrix
     ///   (including diagonal entries) with column major ordering.
+    /// * `ctx` - The execution context, which can be used to check for cancellation during the construction of the adjacency matrix.
     ///
     /// # Returns
     /// * `Vec<Vec<i32>>` - The adjacency matrix representing the graph.
-    fn get_adjacency_matrix_upper_diag_col(&self, edge_weight_section: &[i32]) -> Vec<Vec<i32>> {
+    #[allow(clippy::needless_range_loop)]
+    fn try_get_adjacency_matrix_upper_diag_col(
+        &self,
+        edge_weight_section: &[i32],
+        ctx: ExecutionContext,
+    ) -> Result<Vec<Vec<i32>>, ConversionError> {
         let mut matrix = vec![vec![0; self.dimension]; self.dimension];
-        (0..self.dimension).for_each(|j| {
-            (0..=j).for_each(|i| {
+
+        for j in 0..self.dimension {
+            // check for cancellation every 100 iterations to avoid excessive overhead while still allowing for responsive cancellation
+            if j % 100 == 0 && ctx.is_cancelled() {
+                return Err(ConversionError::Cancelled);
+            }
+
+            for i in 0..=j {
                 let idx = (j * (j + 1)) / 2 + i;
                 matrix[i][j] = edge_weight_section[idx];
                 matrix[j][i] = edge_weight_section[idx];
-            })
-        });
-        matrix
+            }
+        }
+
+        Ok(matrix)
     }
 
     /// Constructs the adjacency matrix from the EDGE_WEIGHT_SECTION when the edge weights are given by a lower
@@ -549,18 +701,31 @@ impl TSPLIBInstance {
     /// # Arguments
     /// * `edge_weight_section` - A slice containing the lower triangular part of the adjacency matrix
     ///   (including diagonal entries) with column major ordering.
+    /// * `ctx` - The execution context, which can be used to check for cancellation during the construction of the adjacency matrix.
     ///
     /// # Returns
     /// * `Vec<Vec<i32>>` - The adjacency matrix representing the graph.
-    fn get_adjacency_matrix_lower_diag_col(&self, edge_weight_section: &[i32]) -> Vec<Vec<i32>> {
+    #[allow(clippy::needless_range_loop)]
+    fn try_get_adjacency_matrix_lower_diag_col(
+        &self,
+        edge_weight_section: &[i32],
+        ctx: ExecutionContext,
+    ) -> Result<Vec<Vec<i32>>, ConversionError> {
         let mut matrix = vec![vec![0; self.dimension]; self.dimension];
-        (0..self.dimension).for_each(|j| {
-            (j..self.dimension).for_each(|i| {
+
+        for j in 0..self.dimension {
+            // check for cancellation every 100 iterations to avoid excessive overhead while still allowing for responsive cancellation
+            if j % 100 == 0 && ctx.is_cancelled() {
+                return Err(ConversionError::Cancelled);
+            }
+
+            for i in j..self.dimension {
                 let idx = j * (2 * self.dimension - j + 1) / 2 + (i - j);
                 matrix[i][j] = edge_weight_section[idx];
                 matrix[j][i] = edge_weight_section[idx];
-            })
-        });
-        matrix
+            }
+        }
+
+        Ok(matrix)
     }
 }
