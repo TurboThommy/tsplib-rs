@@ -2,7 +2,10 @@
 
 use std::collections::{HashMap, HashSet};
 
-use tsplib_core::models::{ProblemInstance, TspSolution};
+use tsplib_core::{
+    context::ExecutionContext,
+    models::{ProblemInstance, TspSolution},
+};
 
 use crate::{TspSolver, errors::SolverError};
 
@@ -43,6 +46,7 @@ impl HeldKarp {
     /// * `start_idx` - The index of the starting node (0-based).
     /// * `fixed_edge_map` - A `HashMap` mapping each node ID to its fixed edge target (if it has one).
     /// * `fixed_edge_targets` - A `HashSet` containing the IDs of all nodes that are targets of fixed edges.
+    /// * `ctx` - An `ExecutionContext` providing additional information and resources for the solver (e.g., time limits, logging, etc.).
     ///
     /// # Returns
     /// * `Result<(DpTable, ParentTable), SolverError>` - On success, returns a tuple containing the DP table and the parent table used for reconstructing the optimal tour.
@@ -55,15 +59,22 @@ impl HeldKarp {
         start_idx: usize,
         fixed_edge_map: &HashMap<usize, usize>,
         fixed_edge_targets: &HashSet<usize>,
+        ctx: ExecutionContext,
     ) -> Result<(DpTable, ParentTable), SolverError> {
         // number of subsets of nodes = 2^n
         let size = 1 << n;
 
         // dp table with size 2^n x n (subsets x number of nodes)
         let mut dp = vec![vec![i64::MAX; n]; size];
+        if ctx.is_cancelled() {
+            return Err(SolverError::Cancelled);
+        }
 
         // table to reconstruct the path, stores the previous node for each state
         let mut parent = vec![vec![usize::MAX; n]; size];
+        if ctx.is_cancelled() {
+            return Err(SolverError::Cancelled);
+        }
 
         // the bitmask for the set of visited nodes, initially only the start node is visited
         let start_mask = 1 << start_idx;
@@ -74,6 +85,11 @@ impl HeldKarp {
         // build dp by iterating over all subsets of nodes
         // start from start_mask (lower numbers represent subsets that don't include the start node, which can be skipped)
         for s in start_mask..size {
+            // check for cancellation every 1000 iterations to avoid excessive overhead
+            if s % 1000 == 0 && ctx.is_cancelled() {
+                return Err(SolverError::Cancelled);
+            }
+
             // skip subsets which don't include the start node
             if (s & start_mask) == 0 {
                 continue;
@@ -137,6 +153,7 @@ impl HeldKarp {
     /// * `n` - The number of nodes in the problem instance.
     /// * `start_idx` - The index of the starting node (0-based).
     /// * `full_mask` - The bitmask representing the subset of all nodes visited (i.e., when all nodes are visited).
+    /// * `ctx` - An `ExecutionContext` providing additional information and resources for the solver (e.g., time limits, logging, etc.).
     ///
     /// # Returns
     /// * `Result<(i64, usize), SolverError>` - On success, returns a tuple containing the minimal tour cost and the index of the last node in the optimal tour.
@@ -149,7 +166,13 @@ impl HeldKarp {
         n: usize,
         start_idx: usize,
         full_mask: usize,
+        ctx: ExecutionContext,
     ) -> Result<(i64, usize), SolverError> {
+        // check for cancellation before finding the minimal tour
+        if ctx.is_cancelled() {
+            return Err(SolverError::Cancelled);
+        }
+
         // find the minimum cost to return to the start node after visiting all nodes
         let costs = (0..n)
             .filter(|&j| j != start_idx)
@@ -190,7 +213,13 @@ impl HeldKarp {
         start_idx: usize,
         full_mask: usize,
         mut last_node: usize,
+        ctx: ExecutionContext,
     ) -> Result<Vec<usize>, SolverError> {
+        // check for cancellation before reconstructing the tour
+        if ctx.is_cancelled() {
+            return Err(SolverError::Cancelled);
+        }
+
         let mut tour: Vec<usize> = Vec::new();
         let mut current_mask = full_mask;
 
@@ -222,15 +251,17 @@ impl TspSolver for HeldKarp {
     /// # Arguments
     /// * `problem` - A reference to the `ProblemInstance` representing the TSP problem to be solved.
     /// * `start_node` - The ID of the node from which the tour should start.
+    /// * `ctx` - An `ExecutionContext` providing additional information and resources for the solver (e.g., time limits, logging, etc.).
     ///
     /// # Returns
     /// * `Result<TspSolution, SolverError>` - On success, returns a `TspSolution` containing the optimal tour and its total cost.
     ///   On failure, returns a `SolverError` indicating the reason for the failure
     ///   (e.g., invalid start node, dimension exceeded, no solution found, etc.).
-    fn try_solve(
+    fn try_solve_with_context(
         &self,
         problem: &ProblemInstance,
         start_node: usize,
+        ctx: ExecutionContext,
     ) -> Result<TspSolution, SolverError> {
         // number of nodes in the problem
         let n = problem.nodes.len();
@@ -252,17 +283,28 @@ impl TspSolver for HeldKarp {
         // the bitmask for the set of visited nodes when all nodes are visited
         let full_mask = (1 << n) - 1;
 
+        // check for cancellation before starting the main computation
+        if ctx.is_cancelled() {
+            return Err(SolverError::Cancelled);
+        }
+
         // build the dp and parent tables
-        let (dp, parent) =
-            self.try_build_tables(problem, n, start_idx, &fixed_edge_map, &fixed_edge_targets)?;
+        let (dp, parent) = self.try_build_tables(
+            problem,
+            n,
+            start_idx,
+            &fixed_edge_map,
+            &fixed_edge_targets,
+            ctx,
+        )?;
 
         // find the minimal tour cost and the last node in the optimal tour
         let (minimal_cost, last_node) =
-            self.try_find_minimal_tour(problem, &dp, n, start_idx, full_mask)?;
+            self.try_find_minimal_tour(problem, &dp, n, start_idx, full_mask, ctx)?;
 
         // reconstruct the optimal tour based on the last node and the parent table
         let tour =
-            self.try_reconstruct_tour(&parent, start_node, start_idx, full_mask, last_node)?;
+            self.try_reconstruct_tour(&parent, start_node, start_idx, full_mask, last_node, ctx)?;
 
         Ok(TspSolution {
             tour,

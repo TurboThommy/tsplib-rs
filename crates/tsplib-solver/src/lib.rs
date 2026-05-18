@@ -9,9 +9,32 @@ pub use greedy::Greedy;
 pub use held_karp::HeldKarp;
 
 use errors::SolverError;
-use tsplib_core::models::{ProblemInstance, TspSolution};
+use tsplib_core::{
+    context::ExecutionContext,
+    models::{ProblemInstance, TspSolution},
+};
 
 pub trait TspSolver {
+    /// Solves the TSP problem for the given problem instance and starting node, using the provided execution context.
+    /// The implementation of this method should return a `TspSolution` containing a tour and its total cost,
+    /// or a `SolverError` if the problem cannot be solved.
+    ///
+    /// # Arguments
+    /// * `problem` - A reference to the `ProblemInstance` representing the TSP problem to be solved.
+    /// * `start_node` - The ID of the node from which the tour should start.
+    /// * `ctx` - An `ExecutionContext` providing additional information and resources for the solver (e.g., time limits, logging, etc.).
+    ///
+    /// # Returns
+    /// * `Result<TspSolution, SolverError>` - On success, returns a `TspSolution` containing the optimal tour and its total cost.
+    ///   On failure, returns a `SolverError` indicating the reason for the failure
+    ///   (e.g., invalid start node, dimension exceeded, no solution found, etc.).
+    fn try_solve_with_context(
+        &self,
+        problem: &ProblemInstance,
+        start_node: usize,
+        ctx: ExecutionContext,
+    ) -> Result<TspSolution, SolverError>;
+
     /// Solves the TSP problem for the given problem instance and starting node.
     /// The implementation of this method should return a `TspSolution` containing a tour and its total cost,
     /// or a `SolverError` if the problem cannot be solved.
@@ -28,7 +51,9 @@ pub trait TspSolver {
         &self,
         problem: &ProblemInstance,
         start_node: usize,
-    ) -> Result<TspSolution, SolverError>;
+    ) -> Result<TspSolution, SolverError> {
+        self.try_solve_with_context(problem, start_node, ExecutionContext::default())
+    }
 
     /// Checks the validity of the problem instance and the starting node for the TSP solver.
     ///
