@@ -1,8 +1,10 @@
 //! Defines the ProblemType enum, which specifies the type of combinatorial optimization problem being defined in the instance file.
 use std::fmt;
 
+use serde::Serialize;
+
 /// ProblemType specifies the type of combinatorial optimization problem being defined in the instance file.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize)]
 pub enum ProblemType {
     /// Symmetric TSP
     /// distance between i and j is the same as between j and i

@@ -1,11 +1,14 @@
 //! Defines the `ProblemInstance` struct, which represents a TSP problem instance with its name, type, nodes, adjacency matrix, and optional fixed edges.
 //! It also includes methods for estimating heap size and converting from a `TSPLIBInstance`.
+use serde::Serialize;
+
 use crate::{
     enums::{ConversionError, DataSection, InstanceError, ProblemType},
     models::{Node, TSPLIBInstance},
 };
 
 /// Represents a TSP problem instance as graph (collection of nodes and an adjacency matrix).
+#[derive(Serialize)]
 pub struct ProblemInstance {
     /// The name of the problem instance.
     pub name: String,

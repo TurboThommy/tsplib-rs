@@ -1,8 +1,10 @@
 //! This module defines the `Node` struct, which represents a node in a graph with its coordinates and provides methods to calculate various types of distances between nodes.
+use serde::Serialize;
+
 use crate::distances::*;
 
 /// A struct representing the node of a graph.
-#[derive(Debug)]
+#[derive(Debug, Serialize)]
 pub struct Node {
     /// The unique identifier of the node.
     pub id: usize,
