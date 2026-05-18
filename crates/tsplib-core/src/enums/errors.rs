@@ -45,4 +45,7 @@ pub enum ConversionError {
         "Invalid EDGE_WEIGHT_TYPE {0:?} for 2D coordinates. Expected EUC_2D, MAX_2D, MAN_2D, CEIL_2D, GEO or ATT"
     )]
     InvalidEdgeWeightType2D(EdgeWeightType),
+
+    #[error("The execution was cancelled before the algorithm could complete.")]
+    Cancelled,
 }

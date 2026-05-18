@@ -1,7 +1,7 @@
 //! This module contains the main function and test functions for parsing TSP files and converting them to graph representations.
 use itertools::Itertools;
 use std::fs;
-use tsplib_core::models::ProblemInstance;
+use tsplib_core::{context::ExecutionContext, models::ProblemInstance};
 use tsplib_parser::{parse, try_parse};
 use tsplib_solver::TspSolver;
 
@@ -101,7 +101,7 @@ fn test_edge_weight_matrix_conversion() {
 
     let adjacency_matrices = tsp_instances
         .iter()
-        .flat_map(|i| i.try_calculate_adjacency_matrix_edge_weights());
+        .flat_map(|i| i.try_calculate_adjacency_matrix_edge_weights(ExecutionContext::default()));
 
     adjacency_matrices.for_each(|m| {
         println!("{:?}", m);

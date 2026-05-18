@@ -6,6 +6,7 @@ pub trait Cancellation {
 }
 
 /// The execution context for algorithms, which can be used to check for cancellation.
+#[derive(Clone, Copy, Default)]
 pub struct ExecutionContext<'a> {
     /// An optional reference to a cancellation object. If `None`, cancellation is not supported.
     cancellation: Option<&'a dyn Cancellation>,
