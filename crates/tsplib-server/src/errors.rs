@@ -12,14 +12,14 @@ pub enum ServerError {
     IoError(String),
     #[error("Solver error: {0}")]
     SolverError(String),
-    #[error("Solver is already running")]
-    SolverAlreadyRunning,
+    #[error("A Processing task is already running")]
+    ProcessingAlreadyRunning,
     #[error("Problem {0} not found")]
     ProblemNotFound(String),
     #[error("Failed to parse problem instance: {0}")]
     ProblemParseError(String),
-    #[error("Solver task was cancelled")]
-    SolverCancelled,
+    #[error("Processing task was cancelled")]
+    ProcessingCancelled,
 }
 
 impl IntoResponse for ServerError {
@@ -27,12 +27,12 @@ impl IntoResponse for ServerError {
         let (status, error_message) = match self {
             ServerError::IoError(msg) => (StatusCode::INTERNAL_SERVER_ERROR, msg),
             ServerError::SolverError(msg) => (StatusCode::INTERNAL_SERVER_ERROR, msg),
-            ServerError::SolverAlreadyRunning => (StatusCode::CONFLICT, self.to_string()),
+            ServerError::ProcessingAlreadyRunning => (StatusCode::CONFLICT, self.to_string()),
             ServerError::ProblemNotFound(_) => (StatusCode::NOT_FOUND, self.to_string()),
             ServerError::ProblemParseError(_) => {
                 (StatusCode::INTERNAL_SERVER_ERROR, self.to_string())
             }
-            ServerError::SolverCancelled => (StatusCode::OK, self.to_string()),
+            ServerError::ProcessingCancelled => (StatusCode::OK, self.to_string()),
         };
         (status, error_message).into_response()
     }

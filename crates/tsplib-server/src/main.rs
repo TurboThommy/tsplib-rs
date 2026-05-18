@@ -15,6 +15,7 @@ async fn main() {
         .merge(routes::problems::router())
         .merge(routes::algorithms::router())
         .merge(routes::solver::router())
+        .merge(routes::cancel::router())
         .with_state(state);
 
     let listener = tokio::net::TcpListener::bind("0.0.0.0:3000").await.unwrap();

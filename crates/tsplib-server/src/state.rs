@@ -4,7 +4,7 @@ use tokio::sync::Mutex;
 use tokio_util::sync::CancellationToken;
 
 /// Represents the current state of the TSP solver,which can either be idle or processing a problem instance.
-pub enum SolverState {
+pub enum ProcessingState {
     Idle,
     Processing(CancellationToken),
 }
@@ -12,14 +12,14 @@ pub enum SolverState {
 /// The shared application state for the TSP solver server, containing the current solver state.
 #[derive(Clone)]
 pub struct AppState {
-    pub solver_state: Arc<Mutex<SolverState>>,
+    pub solver_state: Arc<Mutex<ProcessingState>>,
 }
 
 impl AppState {
     /// Creates a new instance of the application state with the solver state initialized to idle.
     pub fn new() -> Self {
         AppState {
-            solver_state: Arc::new(Mutex::new(SolverState::Idle)),
+            solver_state: Arc::new(Mutex::new(ProcessingState::Idle)),
         }
     }
 }
