@@ -1,7 +1,7 @@
 //! Handlers for the REST API routes related to running the solvers.
 use std::fs;
 
-use axum::{Json, Router, extract::State, http::StatusCode, routing::post};
+use axum::{Json, Router, extract::State, routing::post};
 use tokio_util::sync::CancellationToken;
 use tsplib_core::{
     context::ExecutionContext,
@@ -19,9 +19,7 @@ use crate::{
 
 /// Router for solver-related endpoints.
 pub fn router() -> Router<AppState> {
-    Router::new()
-        .route("/solver/start", post(start_solver))
-        .route("/solver/cancel", post(cancel_solver))
+    Router::new().route("/solver/start", post(start_solver))
 }
 
 /// Internal helper function to run the solver in a blocking task.
@@ -117,25 +115,5 @@ async fn start_solver(
         Ok(Err(e)) => Err(e),
         Err(e) if e.is_cancelled() => Err(ServerError::ProcessingCancelled),
         Err(e) => Err(ServerError::from(e)),
-    }
-}
-
-/// Cancels the currently running TSP solver, if any.
-/// If a solver is running, it aborts the task and resets the solver state to idle.
-/// If no solver is running, it returns a bad request status code.
-///
-/// # Arguments
-/// * `State(state)` - The shared application state containing the solver state.
-///
-/// # Returns
-/// * `StatusCode` - HTTP status code indicating the result of the cancellation attempt.
-async fn cancel_solver(State(state): State<AppState>) -> StatusCode {
-    let solver_state = state.solver_state.lock().await;
-
-    if let ProcessingState::Processing(ct) = &*solver_state {
-        ct.cancel();
-        StatusCode::OK
-    } else {
-        StatusCode::BAD_REQUEST
     }
 }
