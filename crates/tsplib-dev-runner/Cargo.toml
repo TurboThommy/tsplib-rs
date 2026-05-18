@@ -4,7 +4,7 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-itertools = "0.14.0"
-tsplib-core = { path = "../tsplib-core" }
-tsplib-parser = { path = "../tsplib-parser" }
-tsplib-solver = { path = "../tsplib-solver" }
+itertools = { workspace = true }
+tsplib-core = { workspace = true }
+tsplib-parser = { workspace = true }
+tsplib-solver = { workspace = true }

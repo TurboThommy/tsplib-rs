@@ -1,4 +1,4 @@
-//! Module containing the specific error types that can occur during parsing, using the `thiserror` crate for convenient error definitions and formatting.
+//! Module containing the specific error types that can occur during parsing.
 use thiserror::Error;
 
 /// Defines the `ParseError` enum, which represents various errors that can occur during the parsing of TSPLIB files.
