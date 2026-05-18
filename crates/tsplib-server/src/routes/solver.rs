@@ -2,7 +2,9 @@
 use std::fs;
 
 use axum::{Json, Router, extract::State, http::StatusCode, routing::post};
+use tokio_util::sync::CancellationToken;
 use tsplib_core::{
+    context::ExecutionContext,
     enums::AlgorithmType,
     models::{ProblemInstance, TspSolution},
 };
@@ -36,23 +38,33 @@ fn run_solver(
     algorithm: AlgorithmType,
     problem_id: String,
     start_node: Option<usize>,
+    token: CancellationToken,
 ) -> Result<TspSolution, ServerError> {
+    // create a cancellation function that checks if the token has been cancelled
+    let cancellation = || token.is_cancelled();
+    let ctx = ExecutionContext::new(&cancellation);
+
     // define file path to the problem instance
     let path = format!("./data/{}.tsp", problem_id);
 
     // read file and parse as ProblemInstance
     let problem_data = fs::read_to_string(path);
     let problem: ProblemInstance = match problem_data {
-        Ok(data) => try_parse(data)?.try_into()?, // parse data into ProblemInstance
+        Ok(data) => try_parse(data)?.try_into_problem_instance(ctx)?, // parse data into ProblemInstance
         Err(_) => return Err(ServerError::ProblemNotFound(problem_id)),
     };
+
+    // check cancellation before starting the solver
+    if ctx.is_cancelled() {
+        return Err(ServerError::SolverCancelled);
+    }
 
     let solver: Box<dyn TspSolver> = match algorithm {
         AlgorithmType::Greedy => Box::new(Greedy::new()),
         AlgorithmType::HeldKarp => Box::new(HeldKarp::try_new(25)?),
     };
 
-    Ok(solver.try_solve(&problem, start_node.unwrap_or(1))?)
+    Ok(solver.try_solve_with_context(&problem, start_node.unwrap_or(1), ctx)?)
 }
 
 /// Starts the TSP solver for a given problem instance and algorithm.
@@ -76,12 +88,22 @@ async fn start_solver(
         return Err(ServerError::SolverAlreadyRunning);
     }
 
+    // create a cancellation token for the new solver task
+    let token = CancellationToken::new();
+    // create a second handle for the cancellation token to pass to the solver task
+    let task_token = token.clone();
+
     // spawn a blocking task to run the solver and set the solver state to processing
     let handle = tokio::task::spawn_blocking(move || {
-        run_solver(request.algorithm, request.problem_id, request.start_node)
+        run_solver(
+            request.algorithm,
+            request.problem_id,
+            request.start_node,
+            task_token,
+        )
     });
 
-    *solver_state = SolverState::Processing(handle.abort_handle());
+    *solver_state = SolverState::Processing(token);
     drop(solver_state);
 
     // wait for the solver to finish and get the result
@@ -108,12 +130,10 @@ async fn start_solver(
 /// # Returns
 /// * `StatusCode` - HTTP status code indicating the result of the cancellation attempt.
 async fn cancel_solver(State(state): State<AppState>) -> StatusCode {
-    // TODO: Add CancellationToken and rework the other crates to fully support cancellation, currently the aborted task will still run to completion
-    let mut solver_state = state.solver_state.lock().await;
+    let solver_state = state.solver_state.lock().await;
 
-    if let SolverState::Processing(abort_handle) = &*solver_state {
-        abort_handle.abort();
-        *solver_state = SolverState::Idle;
+    if let SolverState::Processing(ct) = &*solver_state {
+        ct.cancel();
         StatusCode::OK
     } else {
         StatusCode::BAD_REQUEST

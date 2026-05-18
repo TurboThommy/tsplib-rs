@@ -1,11 +1,12 @@
 //! Application state management for the TSP solver server.
 use std::sync::Arc;
-use tokio::{sync::Mutex, task::AbortHandle};
+use tokio::sync::Mutex;
+use tokio_util::sync::CancellationToken;
 
 /// Represents the current state of the TSP solver,which can either be idle or processing a problem instance.
 pub enum SolverState {
     Idle,
-    Processing(AbortHandle),
+    Processing(CancellationToken),
 }
 
 /// The shared application state for the TSP solver server, containing the current solver state.

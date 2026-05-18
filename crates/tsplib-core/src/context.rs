@@ -5,6 +5,16 @@ pub trait Cancellation {
     fn is_cancelled(&self) -> bool;
 }
 
+/// A blanket implementation of the `Cancellation` trait for any function that returns a boolean value.
+impl<F> Cancellation for F
+where
+    F: Fn() -> bool + Send + Sync,
+{
+    fn is_cancelled(&self) -> bool {
+        self()
+    }
+}
+
 /// The execution context for algorithms, which can be used to check for cancellation.
 #[derive(Clone, Copy, Default)]
 pub struct ExecutionContext<'a> {
