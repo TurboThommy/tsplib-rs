@@ -61,22 +61,7 @@ impl TryFrom<TSPLIBInstance> for ProblemInstance {
     type Error = ConversionError;
 
     fn try_from(tsp_instance: TSPLIBInstance) -> Result<Self, ConversionError> {
-        let nodes = tsp_instance.try_extract_nodes()?;
-        let adjacency_matrix = tsp_instance.try_calculate_adjacency_matrix()?;
-
-        // check for fixed edges
-        let fixed_edges = tsp_instance.data_sections.iter().find_map(|s| match s {
-            DataSection::FixedEdgesSection(section) => Some(section.clone()),
-            _ => None,
-        });
-
-        Ok(ProblemInstance {
-            name: tsp_instance.name.clone(),
-            problem_type: tsp_instance.problem_type,
-            nodes,
-            adjacency_matrix,
-            fixed_edges,
-        })
+        (&tsp_instance).try_into()
     }
 }
 
