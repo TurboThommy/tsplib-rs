@@ -1,0 +1,989 @@
+<!doctype html>
+<html lang="de">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>TSP Graph Viewer</title>
+  <style>
+    :root {
+      color-scheme: light;
+      --bg: #eef2f6;
+      --panel: #fbfcfd;
+      --panel-soft: #f5f7fa;
+      --panel-border: #d8dee7;
+      --text: #111827;
+      --muted: #5b6675;
+      --accent: #2563eb;
+      --accent-strong: #1d4ed8;
+      --ok: #15803d;
+      --danger: #dc2626;
+      --canvas: #ffffff;
+      --grid: #e7ecf2;
+      --edge: #475569;
+      --edge-muted: #9aa5b1;
+      --solution: #f97316;
+      --solution-dark: #9a3412;
+      --solution-bg: #fff7ed;
+      --node: #60a5fa;
+      --node-border: #172033;
+      --label: #0f172a;
+      --code: #0f172a;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      height: 100vh;
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) clamp(360px, 31vw, 560px);
+      overflow: hidden;
+      background: var(--bg);
+      color: var(--text);
+      font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    }
+
+    main {
+      min-width: 0;
+      min-height: 0;
+      position: relative;
+      background: var(--canvas);
+    }
+
+    #canvas {
+      display: block;
+      width: 100%;
+      height: 100vh;
+    }
+
+    aside {
+      min-height: 0;
+      display: grid;
+      grid-template-rows: auto minmax(0, 1fr);
+      overflow: hidden;
+      border-left: 1px solid var(--panel-border);
+      background: var(--panel);
+    }
+
+    .sidebar-header {
+      padding: 18px 20px 14px;
+      border-bottom: 1px solid var(--panel-border);
+      background: var(--panel);
+    }
+
+    .sidebar-content {
+      min-height: 0;
+      overflow: auto;
+      padding: 16px 20px 20px;
+    }
+
+    .section {
+      padding: 16px 0;
+      border-top: 1px solid var(--panel-border);
+    }
+
+    .section:first-child {
+      padding-top: 0;
+      border-top: 0;
+    }
+
+    h1 {
+      margin: 0;
+      font-size: 21px;
+      line-height: 1.2;
+    }
+
+    h2 {
+      margin: 0 0 10px;
+      font-size: 14px;
+      line-height: 1.2;
+      color: #273244;
+    }
+
+    label {
+      display: block;
+      margin: 0 0 6px;
+      font-size: 13px;
+      font-weight: 650;
+      color: #273244;
+    }
+
+    select,
+    input {
+      width: 100%;
+      height: 38px;
+      min-width: 0;
+      padding: 7px 9px;
+      border: 1px solid #cbd5e1;
+      border-radius: 6px;
+      background: white;
+      color: var(--text);
+      font: inherit;
+    }
+
+    select:focus,
+    input:focus,
+    button:focus-visible {
+      outline: 2px solid rgba(37, 99, 235, 0.22);
+      outline-offset: 2px;
+    }
+
+    input[type="checkbox"] {
+      width: auto;
+      height: auto;
+      margin: 0;
+    }
+
+    button {
+      height: 36px;
+      margin: 0;
+      padding: 0 10px;
+      border: 1px solid #c4ccd6;
+      border-radius: 6px;
+      background: white;
+      color: var(--text);
+      cursor: pointer;
+      font: inherit;
+      font-size: 13px;
+      font-weight: 650;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    button:hover {
+      border-color: #94a3b8;
+    }
+
+    button.primary {
+      border-color: var(--accent-strong);
+      background: var(--accent);
+      color: white;
+    }
+
+    button:disabled {
+      cursor: wait;
+      opacity: 0.65;
+    }
+
+    .actions {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 8px;
+      margin-top: 8px;
+    }
+
+    .actions.single {
+      grid-template-columns: 1fr;
+    }
+
+    .solution-actions {
+      grid-template-columns: minmax(0, 1.35fr) minmax(110px, 0.85fr);
+    }
+
+    .toggles {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 8px;
+      margin-top: 8px;
+    }
+
+    .toggle {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      min-height: 36px;
+      padding: 8px;
+      border: 1px solid var(--panel-border);
+      border-radius: 6px;
+      background: white;
+      font-size: 13px;
+      color: #273244;
+    }
+
+    .stats {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 8px;
+    }
+
+    .stat {
+      min-width: 0;
+      padding: 10px;
+      border: 1px solid var(--panel-border);
+      border-radius: 6px;
+      background: white;
+    }
+
+    .stat strong {
+      display: block;
+      font-size: 18px;
+      line-height: 1;
+    }
+
+    .stat span {
+      display: block;
+      margin-top: 4px;
+      font-size: 11px;
+      color: var(--muted);
+      white-space: nowrap;
+    }
+
+    .status {
+      min-height: 36px;
+      padding: 9px 10px;
+      border: 1px solid var(--panel-border);
+      border-radius: 6px;
+      background: white;
+      color: var(--muted);
+      font-size: 13px;
+      line-height: 1.25;
+    }
+
+    .sidebar-header .status,
+    .section .status,
+    .section dl {
+      margin-top: 10px;
+    }
+
+    .field {
+      margin-bottom: 10px;
+    }
+
+    .status.ok {
+      border-color: #86efac;
+      color: var(--ok);
+      background: #f0fdf4;
+    }
+
+    .status.error {
+      border-color: #fca5a5;
+      color: var(--danger);
+      background: #fef2f2;
+    }
+
+    dl {
+      display: grid;
+      grid-template-columns: 116px minmax(0, 1fr);
+      gap: 6px 10px;
+      margin: 0;
+      padding: 10px;
+      border: 1px solid var(--panel-border);
+      border-radius: 6px;
+      background: white;
+      font-size: 13px;
+    }
+
+    dt {
+      color: var(--muted);
+    }
+
+    dd {
+      min-width: 0;
+      margin: 0;
+      overflow-wrap: anywhere;
+      color: var(--text);
+    }
+
+    pre {
+      max-height: min(280px, 34vh);
+      margin: 0;
+      padding: 12px;
+      overflow: auto;
+      border-radius: 6px;
+      background: var(--code);
+      color: #e5e7eb;
+      font-size: 12px;
+      line-height: 1.45;
+      tab-size: 2;
+    }
+
+    .code-stack {
+      display: grid;
+      gap: 12px;
+    }
+
+    @media (max-width: 760px) {
+      body {
+        height: auto;
+        min-height: 100vh;
+        grid-template-columns: 1fr;
+        grid-template-rows: minmax(430px, 58vh) auto;
+        overflow: auto;
+      }
+
+      main,
+      aside {
+        min-height: 0;
+      }
+
+      aside {
+        display: block;
+        overflow: visible;
+        border-left: 0;
+        border-top: 1px solid var(--panel-border);
+      }
+
+      #canvas {
+        height: 100%;
+      }
+
+      .sidebar-content {
+        overflow: visible;
+      }
+    }
+  </style>
+</head>
+<body>
+  <main>
+    <canvas id="canvas"></canvas>
+  </main>
+
+  <aside>
+    <div class="sidebar-header">
+      <h1>TSP Graph Viewer</h1>
+      <div id="apiStatus" class="status">Lade Probleme ...</div>
+    </div>
+
+    <div class="sidebar-content">
+      <section class="section">
+        <div class="field">
+          <label for="problemSelect">Problem</label>
+          <select id="problemSelect"></select>
+        </div>
+
+        <div class="actions single">
+          <button id="cancelLoadBtn" type="button" disabled>Laden abbrechen</button>
+        </div>
+
+        <div class="toggles">
+          <label class="toggle" for="labelsToggle">
+            <input id="labelsToggle" type="checkbox" />
+            Labels
+          </label>
+          <label class="toggle" for="weightsToggle">
+            <input id="weightsToggle" type="checkbox" />
+            Gewichte
+          </label>
+        </div>
+      </section>
+
+      <section class="section">
+        <div class="stats">
+          <div class="stat"><strong id="nodeCount">0</strong><span>Knoten</span></div>
+          <div class="stat"><strong id="edgeCount">0</strong><span>Kanten</span></div>
+          <div class="stat"><strong id="graphType">-</strong><span>Typ</span></div>
+        </div>
+      </section>
+
+      <section class="section">
+        <h2>Lösung</h2>
+        <div class="field">
+          <label for="algorithmSelect">Algorithmus</label>
+          <select id="algorithmSelect"></select>
+        </div>
+
+        <div class="actions solution-actions">
+          <button id="solveBtn" class="primary" type="button">Beste Lösung anzeigen</button>
+          <button id="clearSolutionBtn" type="button">Ausblenden</button>
+        </div>
+
+        <div id="solutionStatus" class="status">Noch keine Lösung berechnet.</div>
+
+        <dl>
+          <dt>Algorithmus</dt><dd id="solutionAlgorithm">-</dd>
+          <dt>Distanz</dt><dd id="solutionDistance">-</dd>
+          <dt>Tour</dt><dd id="solutionTour">-</dd>
+        </dl>
+      </section>
+
+      <section class="section">
+        <h2>Details</h2>
+        <dl>
+          <dt>ID</dt><dd id="problemId">-</dd>
+          <dt>Name</dt><dd id="problemName">-</dd>
+          <dt>Quelle</dt><dd id="problemSource">-</dd>
+          <dt>Gewichte</dt><dd id="edgeWeightType">-</dd>
+        </dl>
+      </section>
+
+      <section class="section code-stack">
+        <div>
+          <h2>Adjacency Matrix</h2>
+          <pre id="matrix"></pre>
+        </div>
+
+        <div>
+          <h2>Problem JSON</h2>
+          <pre id="json"></pre>
+        </div>
+      </section>
+    </div>
+  </aside>
+
+  <script>
+    const canvas = document.getElementById("canvas");
+    const ctx = canvas.getContext("2d");
+
+    const problemSelect = document.getElementById("problemSelect");
+    const cancelLoadBtn = document.getElementById("cancelLoadBtn");
+    const algorithmSelect = document.getElementById("algorithmSelect");
+    const solveBtn = document.getElementById("solveBtn");
+    const clearSolutionBtn = document.getElementById("clearSolutionBtn");
+    const labelsToggle = document.getElementById("labelsToggle");
+    const weightsToggle = document.getElementById("weightsToggle");
+
+    const nodeCountEl = document.getElementById("nodeCount");
+    const edgeCountEl = document.getElementById("edgeCount");
+    const graphTypeEl = document.getElementById("graphType");
+    const apiStatusEl = document.getElementById("apiStatus");
+    const problemIdEl = document.getElementById("problemId");
+    const problemNameEl = document.getElementById("problemName");
+    const problemSourceEl = document.getElementById("problemSource");
+    const edgeWeightTypeEl = document.getElementById("edgeWeightType");
+    const solutionStatusEl = document.getElementById("solutionStatus");
+    const solutionAlgorithmEl = document.getElementById("solutionAlgorithm");
+    const solutionDistanceEl = document.getElementById("solutionDistance");
+    const solutionTourEl = document.getElementById("solutionTour");
+    const matrixEl = document.getElementById("matrix");
+    const jsonEl = document.getElementById("json");
+
+    const API_BASE = "/api/v1";
+    const NODE_RADIUS = 17;
+    const VIEW_PADDING = 52;
+
+    let problemSummaries = [];
+    let algorithms = [];
+    let currentProblem = null;
+    let currentSolution = null;
+    let activeLoadController = null;
+    let view = { scale: 1, offsetX: 0, offsetY: 0 };
+
+    window.addEventListener("resize", () => {
+      resizeCanvas();
+      fitGraph();
+    });
+
+    cancelLoadBtn.addEventListener("click", cancelLoading);
+    solveBtn.addEventListener("click", solveCurrentProblem);
+    clearSolutionBtn.addEventListener("click", () => {
+      currentSolution = null;
+      updateSolutionOutput();
+      draw();
+      setSolutionStatus("Lösung ausgeblendet.");
+    });
+    problemSelect.addEventListener("change", () => loadProblem(problemSelect.value));
+    labelsToggle.addEventListener("change", draw);
+    weightsToggle.addEventListener("change", draw);
+
+    async function loadProblemList() {
+      const controller = beginLoading();
+
+      try {
+        setStatus("Lade Probleme ...");
+
+        if (algorithms.length === 0) {
+          await loadAlgorithms(controller.signal);
+        }
+
+        const summaries = await fetchJson(`${API_BASE}/problems/tsplib`, {
+          signal: controller.signal
+        });
+        problemSummaries = summaries;
+
+        problemSelect.innerHTML = "";
+        for (const summary of problemSummaries) {
+          const option = document.createElement("option");
+          option.value = summary.id;
+          option.textContent = `${summary.name} (${summary.nodeCount})`;
+          problemSelect.append(option);
+        }
+
+        if (problemSummaries.length === 0) {
+          currentProblem = null;
+          updateOutput();
+          draw();
+          setStatus("Keine Probleme auf dem Server.", "error");
+          return;
+        }
+
+        await loadProblem(problemSummaries[0].id, controller);
+      } catch (error) {
+        if (isAbortError(error)) {
+          setStatus("Laden abgebrochen.");
+        } else {
+          setStatus(`Fehler: ${error.message}`, "error");
+        }
+      } finally {
+        finishLoading(controller);
+      }
+    }
+
+    async function loadProblem(id, existingController = null) {
+      if (!id) return;
+      const controller = existingController || beginLoading();
+      const ownsController = !existingController;
+
+      try {
+        setStatus("Lade Graph ...");
+        currentSolution = null;
+        currentProblem = await fetchJson(`${API_BASE}/problems/${encodeURIComponent(id)}`, {
+          signal: controller.signal
+        });
+        problemSelect.value = currentProblem.id;
+        updateOutput();
+        updateSolutionOutput();
+        fitGraph();
+        setStatus(`Geladen: ${currentProblem.name}`, "ok");
+      } catch (error) {
+        if (isAbortError(error)) {
+          setStatus("Laden abgebrochen.");
+        } else {
+          setStatus(`Fehler: ${error.message}`, "error");
+        }
+      } finally {
+        if (ownsController) {
+          finishLoading(controller);
+        }
+      }
+    }
+
+    async function loadAlgorithms(signal) {
+      algorithms = await fetchJson(`${API_BASE}/algorithms`, { signal });
+      algorithmSelect.innerHTML = "";
+
+      for (const algorithm of algorithms) {
+        const option = document.createElement("option");
+        option.value = algorithm.id;
+        option.textContent = algorithm.name;
+        algorithmSelect.append(option);
+      }
+
+      const exact = algorithms.find(algorithm => algorithm.id === "exact-bruteforce");
+      if (exact) {
+        algorithmSelect.value = exact.id;
+      }
+    }
+
+    async function solveCurrentProblem() {
+      if (!currentProblem) return;
+
+      try {
+        setBusy(true);
+        currentSolution = null;
+        updateSolutionOutput();
+        draw();
+        setSolutionStatus("Berechne Lösung ...");
+
+        const start = await fetchJson(`${API_BASE}/solver/start`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            problemId: currentProblem.id,
+            algorithmId: algorithmSelect.value,
+            parameters: { startNode: 0 }
+          })
+        });
+
+        const status = await waitForSolver(start.jobId);
+        if (status.status !== "finished") {
+          throw new Error(`Solver status: ${status.status}`);
+        }
+
+        const result = await fetchJson(`${API_BASE}/solver/result`);
+        if (result.problemId !== currentProblem.id) {
+          throw new Error("Die Lösung gehört nicht zum aktuell ausgewählten Graphen.");
+        }
+
+        currentSolution = result;
+        updateSolutionOutput();
+        draw();
+        setSolutionStatus(`Lösung geladen: ${formatNumber(result.totalDistance)}`, "ok");
+      } catch (error) {
+        setSolutionStatus(`Fehler: ${error.message}`, "error");
+      } finally {
+        setBusy(false);
+      }
+    }
+
+    async function waitForSolver(jobId) {
+      for (let attempt = 0; attempt < 40; attempt += 1) {
+        const status = await fetchJson(`${API_BASE}/solver/status`);
+        if (status.jobId === jobId && status.status !== "running") {
+          return status;
+        }
+        await new Promise(resolve => setTimeout(resolve, 120));
+      }
+
+      throw new Error("Solver hat nicht rechtzeitig geantwortet.");
+    }
+
+    async function fetchJson(url, options) {
+      const response = await fetch(url, options);
+      const data = await response.json().catch(() => null);
+
+      if (!response.ok) {
+        throw new Error(data?.error?.message || `HTTP ${response.status}`);
+      }
+
+      return data;
+    }
+
+    function setBusy(isBusy) {
+      cancelLoadBtn.disabled = !activeLoadController;
+      solveBtn.disabled = isBusy || !currentProblem || algorithms.length === 0;
+      clearSolutionBtn.disabled = isBusy || !currentSolution;
+      problemSelect.disabled = isBusy;
+      algorithmSelect.disabled = isBusy || algorithms.length === 0;
+    }
+
+    function beginLoading() {
+      if (activeLoadController) {
+        activeLoadController.abort();
+      }
+
+      activeLoadController = new AbortController();
+      setBusy(true);
+      return activeLoadController;
+    }
+
+    function finishLoading(controller) {
+      if (activeLoadController === controller) {
+        activeLoadController = null;
+      }
+
+      setBusy(false);
+    }
+
+    async function cancelLoading() {
+      if (!activeLoadController) return;
+
+      activeLoadController.abort();
+      cancelLoadBtn.disabled = true;
+      setStatus("Laden wird abgebrochen ...");
+
+      try {
+        await fetchJson(`${API_BASE}/processing/cancel`, { method: "POST" });
+      } catch {
+        // The browser-side request is already stopped; backend cancellation is best-effort.
+      }
+    }
+
+    function isAbortError(error) {
+      return error?.name === "AbortError";
+    }
+
+    function setStatus(message, type = "") {
+      apiStatusEl.textContent = message;
+      apiStatusEl.className = type ? `status ${type}` : "status";
+    }
+
+    function setSolutionStatus(message, type = "") {
+      solutionStatusEl.textContent = message;
+      solutionStatusEl.className = type ? `status ${type}` : "status";
+    }
+
+    function resizeCanvas() {
+      const rect = canvas.getBoundingClientRect();
+      const ratio = window.devicePixelRatio || 1;
+      canvas.width = Math.floor(rect.width * ratio);
+      canvas.height = Math.floor(rect.height * ratio);
+      ctx.setTransform(ratio, 0, 0, ratio, 0, 0);
+      draw();
+    }
+
+    function updateOutput() {
+      const problem = currentProblem;
+      const edges = problem ? matrixToEdges(problem.adjacencyMatrix, problem.problemType) : [];
+
+      nodeCountEl.textContent = String(problem?.nodeCount ?? 0);
+      edgeCountEl.textContent = String(edges.length);
+      graphTypeEl.textContent = problem?.problemType ?? "-";
+      problemIdEl.textContent = problem?.id ?? "-";
+      problemNameEl.textContent = problem?.name ?? "-";
+      problemSourceEl.textContent = problem?.source ?? "-";
+      edgeWeightTypeEl.textContent = problem?.edgeWeightType ?? "-";
+
+      matrixEl.textContent = formatMatrix(problem?.adjacencyMatrix);
+      jsonEl.textContent = problem ? JSON.stringify(problem, null, 2) : "";
+    }
+
+    function updateSolutionOutput() {
+      solutionAlgorithmEl.textContent = currentSolution?.algorithmId ?? "-";
+      solutionDistanceEl.textContent = currentSolution ? formatNumber(currentSolution.totalDistance) : "-";
+      solutionTourEl.textContent = currentSolution ? currentSolution.tour.join(" -> ") : "-";
+      clearSolutionBtn.disabled = !currentSolution;
+
+      if (!currentSolution) {
+        setSolutionStatus("Noch keine Lösung berechnet.");
+      }
+    }
+
+    function fitGraph() {
+      if (!currentProblem || currentProblem.nodes.length === 0) {
+        draw();
+        return;
+      }
+
+      const rect = canvas.getBoundingClientRect();
+      const xs = currentProblem.nodes.map(node => node.x);
+      const ys = currentProblem.nodes.map(node => node.y);
+      const minX = Math.min(...xs);
+      const maxX = Math.max(...xs);
+      const minY = Math.min(...ys);
+      const maxY = Math.max(...ys);
+      const graphWidth = Math.max(1, maxX - minX);
+      const graphHeight = Math.max(1, maxY - minY);
+      const availableWidth = Math.max(1, rect.width - VIEW_PADDING * 2);
+      const availableHeight = Math.max(1, rect.height - VIEW_PADDING * 2);
+      const scale = Math.min(availableWidth / graphWidth, availableHeight / graphHeight);
+
+      view = {
+        scale,
+        offsetX: (rect.width - graphWidth * scale) / 2 - minX * scale,
+        offsetY: (rect.height - graphHeight * scale) / 2 - minY * scale
+      };
+
+      draw();
+    }
+
+    function toScreen(node) {
+      return {
+        x: node.x * view.scale + view.offsetX,
+        y: node.y * view.scale + view.offsetY
+      };
+    }
+
+    function draw() {
+      const rect = canvas.getBoundingClientRect();
+      ctx.clearRect(0, 0, rect.width, rect.height);
+      drawGrid(rect.width, rect.height);
+
+      if (!currentProblem) {
+        drawEmptyState(rect.width, rect.height);
+        return;
+      }
+
+      const nodes = currentProblem.nodes;
+      const edges = matrixToEdges(currentProblem.adjacencyMatrix, currentProblem.problemType);
+
+      ctx.lineWidth = 1.8;
+      ctx.strokeStyle = getCss("--edge");
+      ctx.fillStyle = getCss("--edge");
+      ctx.font = "12px system-ui";
+      ctx.textAlign = "center";
+      ctx.textBaseline = "middle";
+
+      for (const edge of edges) {
+        const from = nodes[edge.from];
+        const to = nodes[edge.to];
+        if (!from || !to) continue;
+
+        const a = toScreen(from);
+        const b = toScreen(to);
+
+        ctx.beginPath();
+        ctx.moveTo(a.x, a.y);
+        ctx.lineTo(b.x, b.y);
+        ctx.stroke();
+
+        if (currentProblem.problemType === "asymmetric") {
+          drawArrowHead(a, b);
+        }
+
+        if (weightsToggle.checked) {
+          const labelX = (a.x + b.x) / 2;
+          const labelY = (a.y + b.y) / 2;
+          drawWeightLabel(labelX, labelY, edge.weight);
+        }
+      }
+
+      if (currentSolution?.tour?.length > 1) {
+        drawSolutionTour(nodes, currentSolution.tour);
+      }
+
+      for (const node of nodes) {
+        const p = toScreen(node);
+        ctx.beginPath();
+        ctx.arc(p.x, p.y, NODE_RADIUS, 0, Math.PI * 2);
+        ctx.fillStyle = getCss("--node");
+        ctx.fill();
+        ctx.strokeStyle = getCss("--node-border");
+        ctx.lineWidth = 2;
+        ctx.stroke();
+
+        if (labelsToggle.checked) {
+          ctx.fillStyle = getCss("--label");
+          ctx.font = "700 13px system-ui";
+          ctx.textAlign = "center";
+          ctx.textBaseline = "middle";
+          ctx.fillText(String(node.id), p.x, p.y);
+        }
+      }
+    }
+
+    function drawGrid(width, height) {
+      const step = 32;
+      ctx.save();
+      ctx.strokeStyle = getCss("--grid");
+      ctx.lineWidth = 1;
+
+      for (let x = 0; x <= width; x += step) {
+        ctx.beginPath();
+        ctx.moveTo(x, 0);
+        ctx.lineTo(x, height);
+        ctx.stroke();
+      }
+
+      for (let y = 0; y <= height; y += step) {
+        ctx.beginPath();
+        ctx.moveTo(0, y);
+        ctx.lineTo(width, y);
+        ctx.stroke();
+      }
+
+      ctx.restore();
+    }
+
+    function drawEmptyState(width, height) {
+      ctx.fillStyle = getCss("--muted");
+      ctx.font = "14px system-ui";
+      ctx.textAlign = "center";
+      ctx.textBaseline = "middle";
+      ctx.fillText("Kein Graph geladen", width / 2, height / 2);
+    }
+
+    function drawArrowHead(from, to) {
+      const angle = Math.atan2(to.y - from.y, to.x - from.x);
+      const x = to.x - Math.cos(angle) * (NODE_RADIUS + 3);
+      const y = to.y - Math.sin(angle) * (NODE_RADIUS + 3);
+
+      ctx.beginPath();
+      ctx.moveTo(x, y);
+      ctx.lineTo(x - 10 * Math.cos(angle - Math.PI / 6), y - 10 * Math.sin(angle - Math.PI / 6));
+      ctx.lineTo(x - 10 * Math.cos(angle + Math.PI / 6), y - 10 * Math.sin(angle + Math.PI / 6));
+      ctx.closePath();
+      ctx.fill();
+    }
+
+    function drawSolutionTour(nodes, tour) {
+      ctx.save();
+      ctx.lineWidth = 5;
+      ctx.lineCap = "round";
+      ctx.lineJoin = "round";
+      ctx.strokeStyle = getCss("--solution");
+      ctx.fillStyle = getCss("--solution");
+      ctx.shadowColor = "rgba(154, 52, 18, 0.28)";
+      ctx.shadowBlur = 8;
+
+      const steps = [];
+      for (let i = 0; i < tour.length - 1; i += 1) {
+        const from = nodes[tour[i]];
+        const to = nodes[tour[i + 1]];
+        if (!from || !to) continue;
+
+        const a = toScreen(from);
+        const b = toScreen(to);
+        steps.push({ index: i + 1, from: a, to: b });
+
+        ctx.beginPath();
+        ctx.moveTo(a.x, a.y);
+        ctx.lineTo(b.x, b.y);
+        ctx.stroke();
+        drawArrowHead(a, b);
+      }
+
+      ctx.restore();
+
+      for (const step of steps) {
+        const label = solutionStepLabel(step);
+        drawSolutionStepBadge(label.x, label.y, step.index);
+      }
+    }
+
+    function solutionStepLabel(step) {
+      const midX = (step.from.x + step.to.x) / 2;
+      const midY = (step.from.y + step.to.y) / 2;
+      const dx = step.to.x - step.from.x;
+      const dy = step.to.y - step.from.y;
+      const length = Math.max(1, Math.hypot(dx, dy));
+      const offset = 18;
+
+      return {
+        x: midX + (-dy / length) * offset,
+        y: midY + (dx / length) * offset
+      };
+    }
+
+    function drawSolutionStepBadge(x, y, value) {
+      const text = String(value);
+      ctx.save();
+      ctx.font = "700 12px system-ui";
+      ctx.textAlign = "center";
+      ctx.textBaseline = "middle";
+      ctx.fillStyle = getCss("--solution-bg");
+      ctx.strokeStyle = getCss("--solution-dark");
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.arc(x, y, 12, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.stroke();
+      ctx.fillStyle = getCss("--solution-dark");
+      ctx.fillText(text, x, y + 0.5);
+      ctx.restore();
+    }
+
+    function drawWeightLabel(x, y, value) {
+      const text = Number.isInteger(value) ? String(value) : String(Number(value).toFixed(2));
+      const metrics = ctx.measureText(text);
+      const width = metrics.width + 10;
+      const height = 18;
+
+      ctx.fillStyle = "rgba(255, 255, 255, 0.88)";
+      ctx.fillRect(x - width / 2, y - height / 2, width, height);
+      ctx.strokeStyle = getCss("--edge-muted");
+      ctx.strokeRect(x - width / 2, y - height / 2, width, height);
+      ctx.fillStyle = getCss("--label");
+      ctx.fillText(text, x, y + 0.5);
+    }
+
+    function matrixToEdges(matrix, problemType = "symmetric") {
+      if (!Array.isArray(matrix)) return [];
+
+      const edges = [];
+      for (let i = 0; i < matrix.length; i += 1) {
+        for (let j = 0; j < matrix[i].length; j += 1) {
+          const value = matrix[i][j];
+          if (i === j || value === null || value === undefined) continue;
+          if (problemType !== "asymmetric" && j < i) continue;
+          edges.push({ from: i, to: j, weight: value });
+        }
+      }
+      return edges;
+    }
+
+    function formatMatrix(matrix) {
+      if (!Array.isArray(matrix)) return "";
+
+      return matrix
+        .map(row => row.map(value => value === null ? "null" : value).join(" "))
+        .join("\n");
+    }
+
+    function formatNumber(value) {
+      if (typeof value !== "number" || !Number.isFinite(value)) return "-";
+      return Number.isInteger(value) ? String(value) : value.toFixed(2);
+    }
+
+    function getCss(name) {
+      return getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+    }
+
+    resizeCanvas();
+    updateSolutionOutput();
+    loadProblemList();
+  </script>
+</body>
+</html>
