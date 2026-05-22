@@ -1,12 +1,8 @@
 //! Handlers for the REST API routes related to running the solvers.
-use std::fs;
-
 use axum::{Json, Router, extract::State, routing::post};
 use tokio_util::sync::CancellationToken;
 use tsplib_core::{
-    context::ExecutionContext,
-    enums::AlgorithmType,
-    models::{ProblemInstance, TspSolution},
+    context::ExecutionContext, enums::AlgorithmType, models::TspSolution, reader::try_read_tsp_file,
 };
 use tsplib_parser::try_parse;
 use tsplib_solver::{Greedy, HeldKarp, TspSolver};
@@ -46,11 +42,8 @@ fn run_solver(
     let path = format!("./data/{}.tsp", problem_id);
 
     // read file and parse as ProblemInstance
-    let problem_data = fs::read_to_string(path);
-    let problem: ProblemInstance = match problem_data {
-        Ok(data) => try_parse(data)?.try_into_problem_instance(ctx)?, // parse data into ProblemInstance
-        Err(_) => return Err(ServerError::ProblemNotFound(problem_id)),
-    };
+    let (problem_id, problem_data) = try_read_tsp_file(path.as_ref())?;
+    let problem = try_parse(problem_id, problem_data)?.try_into_problem_instance(ctx)?;
 
     // check cancellation before starting the solver
     if ctx.is_cancelled() {

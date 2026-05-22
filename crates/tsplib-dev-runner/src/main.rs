@@ -1,7 +1,10 @@
 //! This module contains the main function and test functions for parsing TSP files and converting them to graph representations.
 use itertools::Itertools;
-use std::fs;
-use tsplib_core::{context::ExecutionContext, models::ProblemInstance};
+use tsplib_core::{
+    context::ExecutionContext,
+    models::ProblemInstance,
+    reader::{read_tsp_file, read_tsp_files},
+};
 use tsplib_parser::{parse, try_parse};
 use tsplib_solver::TspSolver;
 
@@ -22,7 +25,7 @@ fn test_parse() {
     println!("Testing parse()");
     let instances = read_tsp_files("./data")
         .into_iter()
-        .map(parse)
+        .map(|(id, data)| parse(id, data))
         .collect::<Vec<_>>();
 
     println!("Parsed {} instances", instances.len());
@@ -34,7 +37,7 @@ fn test_try_parse() {
     println!("Testing try_parse()");
     let try_instances = read_tsp_files("./data")
         .into_iter()
-        .map(try_parse)
+        .map(|(id, data)| try_parse(id, data))
         .collect::<Vec<_>>();
 
     println!("Try parsed {} instances", try_instances.len());
@@ -51,7 +54,7 @@ fn test_graph_conversion() {
     // only use instances with dimension <= 10000
     let tsp_instances = read_tsp_files("./data")
         .into_iter()
-        .flat_map(try_parse)
+        .flat_map(|(id, data)| try_parse(id, data))
         .sorted_by_key(|i| i.dimension)
         .rev()
         .collect::<Vec<_>>();
@@ -96,7 +99,7 @@ fn test_edge_weight_matrix_conversion() {
     println!("Testing edge weight matrix conversion");
     let tsp_instances = read_tsp_files("./data/test_data")
         .into_iter()
-        .flat_map(try_parse)
+        .flat_map(|(id, data)| try_parse(id, data))
         .collect::<Vec<_>>();
 
     let adjacency_matrices = tsp_instances
@@ -112,8 +115,8 @@ fn test_edge_weight_matrix_conversion() {
 #[allow(dead_code)]
 fn test_instance_to_string() {
     println!("Testing TSPInstance to_string()");
-    let tsp_instance =
-        try_parse(read_file("./data/linhp318.tsp")).expect("failed to read instance");
+    let (problem_id, data) = read_tsp_file("./data/linhp318.tsp");
+    let tsp_instance = try_parse(problem_id, data).expect("failed to read instance");
 
     println!("{}", tsp_instance);
 }
@@ -122,7 +125,10 @@ fn test_instance_to_string() {
 #[allow(dead_code)]
 fn test_greedy_solver() {
     println!("Testing Greedy solver");
-    let tsp_instance = try_parse(read_file("./data/burma14.tsp")).expect("failed to read instance");
+
+    let (problem_id, data) = read_tsp_file("./data/burma14.tsp");
+
+    let tsp_instance = try_parse(problem_id, data).expect("failed to read instance");
     let problem_instance: ProblemInstance =
         tsp_instance.try_into().expect("failed to convert instance");
 
@@ -138,7 +144,10 @@ fn test_greedy_solver() {
 #[allow(dead_code)]
 fn test_held_karp_solver() {
     println!("Testing Held-Karp solver");
-    let tsp_instance = try_parse(read_file("./data/burma14.tsp")).expect("failed to read instance");
+
+    let (problem_id, data) = read_tsp_file("./data/burma14.tsp");
+
+    let tsp_instance = try_parse(problem_id, data).expect("failed to read instance");
     let problem_instance: ProblemInstance =
         tsp_instance.try_into().expect("failed to convert instance");
 
@@ -149,29 +158,4 @@ fn test_held_karp_solver() {
 
     println!("Tour: {:?}", solution.tour);
     println!("Total distance: {}", solution.cost);
-}
-
-/// Reads all .tsp files from the provided path directory and returns their contents as a vector of strings.
-fn read_tsp_files(path: &str) -> Vec<String> {
-    fs::read_dir(path)
-        .expect("Unable to read directory")
-        .filter(|entry| {
-            entry
-                .as_ref()
-                .expect("Unable to read entry")
-                .path()
-                .is_file()
-        })
-        .map(|entry| entry.expect("Unable to read entry"))
-        .filter(|entry| match entry.path().extension() {
-            Some(ext) => ext == "tsp",
-            None => false,
-        })
-        .map(|entry| read_file(entry.path().to_str().unwrap()))
-        .collect::<Vec<_>>()
-}
-
-/// Reads the contents of a file at the given path and returns it as a string.
-fn read_file(file_path: &str) -> String {
-    fs::read_to_string(file_path).expect("Unable to read file")
 }

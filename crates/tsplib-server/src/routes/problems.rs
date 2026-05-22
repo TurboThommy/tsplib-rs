@@ -11,7 +11,7 @@ use axum::{
 };
 use std::fs;
 use tokio_util::sync::CancellationToken;
-use tsplib_core::{context::ExecutionContext, models::ProblemInstance};
+use tsplib_core::{context::ExecutionContext, models::ProblemInstance, reader::try_read_tsp_file};
 use tsplib_parser::try_parse;
 
 /// Router for problem-related endpoints.
@@ -75,11 +75,8 @@ async fn get_problem(
         let problem_path = format!("./data/{}.tsp", problem_id);
 
         // try to read and parse the problem
-        let problem_data = fs::read_to_string(problem_path);
-        let problem = match problem_data {
-            Ok(data) => try_parse(data)?.try_into_problem_instance(ctx)?,
-            Err(_) => return Err(ServerError::ProblemNotFound(problem_id)),
-        };
+        let (problem_id, problem_data) = try_read_tsp_file(problem_path.as_ref())?;
+        let problem = try_parse(problem_id, problem_data)?.try_into_problem_instance(ctx)?;
 
         Ok(problem)
     });
