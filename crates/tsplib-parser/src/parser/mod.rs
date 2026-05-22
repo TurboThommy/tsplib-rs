@@ -8,7 +8,7 @@ mod specification;
 
 use errors::ParseError;
 use sections::try_to_data_section;
-use specification::try_parse_header_line;
+pub use specification::try_parse_header_line;
 use tsplib_core::{
     enums::{
         DataSection, DataSectionType, DisplayDataType, EdgeDataFormat, EdgeWeightFormat,
@@ -18,18 +18,18 @@ use tsplib_core::{
 };
 
 /// Internal struct to hold the parsed specification/header fields while parsing the file
-struct SpecificationPart {
+pub struct SpecificationPart {
     /// The name of the TSP instance, as specified in the "NAME" field of the file header.
-    name: Option<String>,
+    pub name: Option<String>,
 
     /// The type of the TSP problem, as specified in the "TYPE" field of the file header.
     problem_type: Option<ProblemType>,
 
     /// The dimension of the TSP instance, as specified in the "DIMENSION" field of the file header.
-    dimension: Option<usize>,
+    pub dimension: Option<usize>,
 
     /// The type of edge weight representation used in the TSP instance, as specified in the "EDGE_WEIGHT_TYPE" field of the file header.
-    edge_weight_type: Option<EdgeWeightType>,
+    pub edge_weight_type: Option<EdgeWeightType>,
 
     /// The comment lines from the file header, as specified in the "COMMENT" fields of the file header.
     /// This is a vector of strings, as there can be multiple comment lines in the file.
@@ -53,7 +53,7 @@ struct SpecificationPart {
 
 impl SpecificationPart {
     /// Helper function to create a new SpecificationPart with all fields initialized to None or empty values.
-    fn new() -> Self {
+    pub fn new() -> Self {
         Self {
             name: None,
             problem_type: None,
@@ -66,6 +66,12 @@ impl SpecificationPart {
             node_coord_type: None,
             display_data_type: None,
         }
+    }
+}
+
+impl Default for SpecificationPart {
+    fn default() -> Self {
+        Self::new()
     }
 }
 

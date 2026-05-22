@@ -1,6 +1,7 @@
 //! Handlers for the REST API routes related to problem instances.
 use crate::{
     errors::ServerError,
+    models::responses::ProblemDescriptionResponse,
     state::{AppState, ProcessingState},
 };
 
@@ -9,10 +10,13 @@ use axum::{
     extract::{Path, State},
     routing::get,
 };
-use std::fs;
 use tokio_util::sync::CancellationToken;
-use tsplib_core::{context::ExecutionContext, models::TsplibInstance, reader::try_read_tsp_file};
-use tsplib_parser::try_parse;
+use tsplib_core::{
+    context::ExecutionContext,
+    models::TsplibInstance,
+    reader::{try_read_tsp_file, try_read_tsp_files},
+};
+use tsplib_parser::{SpecificationPart, try_parse, try_parse_header_line};
 
 /// Router for problem-related endpoints.
 pub fn router() -> Router<AppState> {
@@ -26,20 +30,44 @@ pub fn router() -> Router<AppState> {
 /// # Returns
 /// * `Json<Vec<String>>` - A list of problem IDs (filenames without extension) in JSON format
 ///   or an error if the directory cannot be read.
-async fn get_problems() -> Result<Json<Vec<String>>, ServerError> {
-    let problems = fs::read_dir("./data")?
-        .filter_map(|entry| {
-            let entry = entry.ok()?;
-            let path = entry.path();
-            if !path.is_file() {
-                return None;
+async fn get_problems() -> Result<Json<Vec<ProblemDescriptionResponse>>, ServerError> {
+    // read all tsp files from the "./data" directory
+    // filter relevant metadata
+    let problems = try_read_tsp_files("./data")?
+        .iter()
+        .map(|(problem_id, problem_data)| {
+            let mut specification = SpecificationPart::new();
+
+            let metadata_lines = problem_data
+                .lines()
+                .filter(|line| line.contains(':'))
+                .collect::<Vec<_>>();
+
+            for line in metadata_lines {
+                let parts = line.split(':').map(|s| s.trim()).collect::<Vec<_>>();
+                if parts.len() != 2 {
+                    Err(ServerError::MetadataParseError(problem_id.to_string()))?;
+                }
+                try_parse_header_line(parts[0], parts[1], &mut specification)?;
             }
-            if path.extension()? != "tsp" {
-                return None;
-            }
-            Some(path.file_stem()?.to_string_lossy().to_string())
+
+            ProblemDescriptionResponse::try_from_specification(problem_id.clone(), &specification)
         })
-        .collect::<Vec<_>>();
+        .collect::<Result<Vec<_>, ServerError>>()?;
+
+    // let problems = fs::read_dir("./data")?
+    //     .filter_map(|entry| {
+    //         let entry = entry.ok()?;
+    //         let path = entry.path();
+    //         if !path.is_file() {
+    //             return None;
+    //         }
+    //         if path.extension()? != "tsp" {
+    //             return None;
+    //         }
+    //         Some(path.file_stem()?.to_string_lossy().to_string())
+    //     })
+    //     .collect::<Vec<_>>();
 
     Ok(Json(problems))
 }

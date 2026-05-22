@@ -18,18 +18,30 @@ pub enum ServerError {
     ProblemParseError(String),
     #[error("Processing task was cancelled")]
     ProcessingCancelled,
+    #[error("Failed to parse problem metadata for: {0}")]
+    MetadataParseError(String),
+    #[error("Unsupported edge weight type for problem: {0}")]
+    UnsupportedEdgeWeightType(String),
 }
 
 impl IntoResponse for ServerError {
     fn into_response(self) -> axum::response::Response {
         let (status, error_message) = match self {
-            ServerError::IoError(msg) => (StatusCode::INTERNAL_SERVER_ERROR, msg),
-            ServerError::SolverError(msg) => (StatusCode::INTERNAL_SERVER_ERROR, msg),
+            ServerError::ProcessingCancelled => (StatusCode::OK, self.to_string()),
+
             ServerError::ProcessingAlreadyRunning => (StatusCode::CONFLICT, self.to_string()),
+
+            ServerError::SolverError(msg) => (StatusCode::INTERNAL_SERVER_ERROR, msg),
+            ServerError::IoError(msg) => (StatusCode::INTERNAL_SERVER_ERROR, msg),
             ServerError::ProblemParseError(_) => {
                 (StatusCode::INTERNAL_SERVER_ERROR, self.to_string())
             }
-            ServerError::ProcessingCancelled => (StatusCode::OK, self.to_string()),
+            ServerError::MetadataParseError(_) => {
+                (StatusCode::INTERNAL_SERVER_ERROR, self.to_string())
+            }
+            ServerError::UnsupportedEdgeWeightType(_) => {
+                (StatusCode::INTERNAL_SERVER_ERROR, self.to_string())
+            }
         };
         (status, error_message).into_response()
     }

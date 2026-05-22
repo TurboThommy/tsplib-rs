@@ -18,7 +18,7 @@ use tsplib_core::enums::{
 /// Errors
 /// * `Err(ParseError::UnknownHeaderField)` - An error indicating that the key does not correspond to a known header field, with the error containing the unknown header field key.
 /// * `Err(ParseError::_)` - An error indicating any other issue encountered during the parsing of the header field, with the error containing details about the specific issue (e.g., invalid value format for a specific field).
-pub(super) fn try_parse_header_line(
+pub fn try_parse_header_line(
     key: &str,
     value: &str,
     specification: &mut SpecificationPart,
