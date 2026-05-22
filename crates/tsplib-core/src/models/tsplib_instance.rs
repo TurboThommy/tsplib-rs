@@ -20,6 +20,9 @@ use std::{fmt, vec};
 #[derive(Debug)]
 pub struct TSPLIBInstance {
     // required
+    /// The ID of the TSP instance, which corresponds to the filename (without extension) of the TSPLIB file from which the instance was parsed.
+    /// This field is required and must be a non-empty string.
+    pub problem_id: String,
     /// The name of the TSP instance, as specified in the TSPLIB file. This field is required and must be a non-empty string.
     pub name: String,
     /// The type of the TSP instance, as specified in the TSPLIB file. This field is required and must be one of the variants of the `ProblemType` enum.
@@ -122,6 +125,7 @@ impl TSPLIBInstance {
         });
 
         Ok(ProblemInstance {
+            problem_id: self.problem_id.clone(),
             name: self.name.clone(),
             problem_type: self.problem_type.clone(),
             nodes,

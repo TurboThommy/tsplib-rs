@@ -11,6 +11,9 @@ use crate::{
 /// Represents a TSP problem instance as graph (collection of nodes and an adjacency matrix).
 #[derive(Serialize)]
 pub struct ProblemInstance {
+    /// The ID of the problem instance, typically derived from the filename without extension.
+    pub problem_id: String,
+
     /// The name of the problem instance.
     pub name: String,
 

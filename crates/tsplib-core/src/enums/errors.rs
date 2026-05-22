@@ -3,12 +3,31 @@ use thiserror::Error;
 
 use crate::enums::{EdgeWeightFormat, EdgeWeightType};
 
+/// InstanceError represents errors that can occur during the validation of problem instances.
 #[derive(Error, Debug)]
 pub enum InstanceError {
     #[error(
         "One of the node IDs is not between 1 and the dimension of the problem instance. Found {0} and {1}, expected IDs between 1 and {2}"
     )]
     DistanceInvalidNodeId(usize, usize, usize),
+}
+
+#[derive(Error, Debug)]
+pub enum IoError {
+    #[error("Invalid file path: {0}")]
+    InvalidFilePath(String),
+
+    #[error("Unable to read file: {0}")]
+    FileReadError(String),
+
+    #[error("File does not contain a valid file stem: {0}")]
+    InvalidFileStem(String),
+
+    #[error("Unable to read directory: {0}")]
+    DirectoryReadError(String),
+
+    #[error("Unable to read directory entry: {0}")]
+    DirectoryEntryReadError(String),
 }
 
 /// ConversionError represents errors that can occur during the conversion between different model types.

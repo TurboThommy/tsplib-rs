@@ -2,7 +2,7 @@
 use axum::{http::StatusCode, response::IntoResponse};
 use thiserror::Error;
 use tokio::task::JoinError;
-use tsplib_core::enums::ConversionError;
+use tsplib_core::enums::{ConversionError, IoError};
 use tsplib_parser::ParseError;
 use tsplib_solver::errors::SolverError;
 
@@ -14,8 +14,6 @@ pub enum ServerError {
     SolverError(String),
     #[error("A Processing task is already running")]
     ProcessingAlreadyRunning,
-    #[error("Problem {0} not found")]
-    ProblemNotFound(String),
     #[error("Failed to parse problem instance: {0}")]
     ProblemParseError(String),
     #[error("Processing task was cancelled")]
@@ -28,7 +26,6 @@ impl IntoResponse for ServerError {
             ServerError::IoError(msg) => (StatusCode::INTERNAL_SERVER_ERROR, msg),
             ServerError::SolverError(msg) => (StatusCode::INTERNAL_SERVER_ERROR, msg),
             ServerError::ProcessingAlreadyRunning => (StatusCode::CONFLICT, self.to_string()),
-            ServerError::ProblemNotFound(_) => (StatusCode::NOT_FOUND, self.to_string()),
             ServerError::ProblemParseError(_) => {
                 (StatusCode::INTERNAL_SERVER_ERROR, self.to_string())
             }
@@ -65,5 +62,11 @@ impl From<ConversionError> for ServerError {
 impl From<JoinError> for ServerError {
     fn from(value: JoinError) -> Self {
         ServerError::SolverError(value.to_string())
+    }
+}
+
+impl From<IoError> for ServerError {
+    fn from(value: IoError) -> Self {
+        ServerError::IoError(value.to_string())
     }
 }

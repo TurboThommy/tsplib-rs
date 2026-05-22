@@ -3,3 +3,4 @@ pub mod context;
 pub mod distances;
 pub mod enums;
 pub mod models;
+pub mod reader;

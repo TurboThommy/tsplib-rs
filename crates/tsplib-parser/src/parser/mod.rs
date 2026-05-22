@@ -106,6 +106,7 @@ impl ParserState {
 /// Use `try_parse` directly if you need error handling.
 ///
 /// # Arguments
+/// * `problem_id` - The ID of the TSP instance, which corresponds to the filename (without extension) of the TSPLIB file from which the instance is parsed.
 /// * `file_content` - A string containing the content of the TSP file to be parsed.
 ///
 /// # Returns
@@ -113,8 +114,8 @@ impl ParserState {
 ///
 /// # Panics
 /// * If the file content cannot be parsed successfully.
-pub fn parse(file_content: String) -> TSPLIBInstance {
-    try_parse(file_content).expect("Failed to parse TSP file content")
+pub fn parse(problem_id: String, file_content: String) -> TSPLIBInstance {
+    try_parse(problem_id, file_content).expect("Failed to parse TSP file content")
 }
 
 /// Main parsing function that takes the content of a TSP file as a string and returns a TSPInstance.
@@ -123,6 +124,7 @@ pub fn parse(file_content: String) -> TSPLIBInstance {
 /// Once the first section header is encountered, the remaining lines are considered part of the data part of the file.
 ///
 /// # Arguments
+/// * `problem_id` - The ID of the TSP instance, which corresponds to the filename (without extension) of the TSPLIB file from which the instance is parsed.
 /// * `file_content` - A string containing the content of the TSP file to be parsed.
 ///
 /// # Returns
@@ -130,7 +132,7 @@ pub fn parse(file_content: String) -> TSPLIBInstance {
 ///
 /// # Errors
 /// * `Err(ParseError)` - An error indicating the specific issue encountered during parsing, such as invalid line formats, unknown header fields, missing required fields, or unknown section types.
-pub fn try_parse(file_content: String) -> Result<TSPLIBInstance, ParseError> {
+pub fn try_parse(problem_id: String, file_content: String) -> Result<TSPLIBInstance, ParseError> {
     let mut specification = SpecificationPart::new();
     let mut data_sections: Vec<DataSection> = Vec::new();
     let mut state = ParserState::Header;
@@ -197,7 +199,7 @@ pub fn try_parse(file_content: String) -> Result<TSPLIBInstance, ParseError> {
     }
 
     // After parsing all lines, create the TSPInstance from the parsed specification and data sections
-    try_create_tsp_instance(specification, data_sections)
+    try_create_tsp_instance(problem_id, specification, data_sections)
 }
 
 // -----------------------------------------------------------------------------------------------------------------------------------------------
@@ -207,6 +209,7 @@ pub fn try_parse(file_content: String) -> Result<TSPLIBInstance, ParseError> {
 /// Helper function to create a TSPInstance from the parsed specification and data sections.
 ///
 /// # Arguments
+/// * `problem_id` - The ID of the TSP instance, which corresponds to the filename (without extension) of the TSPLIB file from which the instance is parsed.
 /// * `specification` - The parsed specification/header fields from the TSP file, containing optional values for each field.
 /// * `data_sections` - The parsed data sections from the TSP file, containing the specific data for each section.
 ///
@@ -217,11 +220,13 @@ pub fn try_parse(file_content: String) -> Result<TSPLIBInstance, ParseError> {
 /// * `Err(ParseError::MissingRequiredField)` - An error indicating that a required field is missing from the specification, with the error containing the name of the missing field.
 /// * `Err(ParseError::_)` - An error indicating any other issue encountered during the creation of the TSPInstance, with the error containing details about the specific issue.
 fn try_create_tsp_instance(
+    problem_id: String,
     specification: SpecificationPart,
     data_sections: Vec<DataSection>,
 ) -> Result<TSPLIBInstance, ParseError> {
     let tsp_instance = tsplib_core::models::TSPLIBInstance {
         // required fields, returns an error if any of these are missing from the specification
+        problem_id: problem_id.to_string(),
         name: specification
             .name
             .ok_or_else(|| ParseError::MissingRequiredField("NAME".to_string()))?,
