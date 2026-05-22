@@ -4,7 +4,7 @@ use std::collections::{HashMap, HashSet};
 
 use tsplib_core::{
     context::ExecutionContext,
-    models::{ProblemInstance, TspSolution},
+    models::{TspSolution, TsplibInstance},
 };
 
 use crate::{TspSolver, errors::SolverError};
@@ -54,7 +54,7 @@ impl HeldKarp {
     ///   (e.g., distance retrieval error, invalid problem instance, etc.).
     fn try_build_tables(
         &self,
-        problem: &ProblemInstance,
+        problem: &TsplibInstance,
         n: usize,
         start_idx: usize,
         fixed_edge_map: &HashMap<usize, usize>,
@@ -161,7 +161,7 @@ impl HeldKarp {
     ///   (e.g., no solution found, distance retrieval error, etc.).
     fn try_find_minimal_tour(
         &self,
-        problem: &ProblemInstance,
+        problem: &TsplibInstance,
         dp: &DpTable,
         n: usize,
         start_idx: usize,
@@ -259,7 +259,7 @@ impl TspSolver for HeldKarp {
     ///   (e.g., invalid start node, dimension exceeded, no solution found, etc.).
     fn try_solve_with_context(
         &self,
-        problem: &ProblemInstance,
+        problem: &TsplibInstance,
         start_node: usize,
         ctx: ExecutionContext,
     ) -> Result<TspSolution, SolverError> {
