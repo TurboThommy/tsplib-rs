@@ -5,7 +5,7 @@ use std::collections::HashSet;
 use tsplib_core::{
     context::ExecutionContext,
     enums::InstanceError,
-    models::{ProblemInstance, TspSolution},
+    models::{TspSolution, TsplibInstance},
 };
 
 use crate::{TspSolver, errors::SolverError};
@@ -41,7 +41,7 @@ impl TspSolver for Greedy {
     ///   On failure, returns a `SolverError` indicating the reason for the failure.
     fn try_solve_with_context(
         &self,
-        problem: &ProblemInstance,
+        problem: &TsplibInstance,
         start_node: usize,
         ctx: ExecutionContext,
     ) -> Result<TspSolution, SolverError> {

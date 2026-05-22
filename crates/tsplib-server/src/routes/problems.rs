@@ -11,7 +11,7 @@ use axum::{
 };
 use std::fs;
 use tokio_util::sync::CancellationToken;
-use tsplib_core::{context::ExecutionContext, models::ProblemInstance, reader::try_read_tsp_file};
+use tsplib_core::{context::ExecutionContext, models::TsplibInstance, reader::try_read_tsp_file};
 use tsplib_parser::try_parse;
 
 /// Router for problem-related endpoints.
@@ -55,7 +55,7 @@ async fn get_problems() -> Result<Json<Vec<String>>, ServerError> {
 async fn get_problem(
     State(state): State<AppState>,
     Path(problem_id): Path<String>,
-) -> Result<Json<ProblemInstance>, ServerError> {
+) -> Result<Json<TsplibInstance>, ServerError> {
     // check if any processing task is currently running
     let mut solver_state = state.solver_state.lock().await;
 

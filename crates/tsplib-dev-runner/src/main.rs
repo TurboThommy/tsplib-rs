@@ -2,7 +2,7 @@
 use itertools::Itertools;
 use tsplib_core::{
     context::ExecutionContext,
-    models::ProblemInstance,
+    models::TsplibInstance,
     reader::{read_tsp_file, read_tsp_files},
 };
 use tsplib_parser::{parse, try_parse};
@@ -73,7 +73,7 @@ fn test_graph_conversion() {
             let try_into_duration = start.elapsed();
             println!("\ttry_into in {:.2?}", try_into_duration);
 
-            result.map(|instance: ProblemInstance| {
+            result.map(|instance: TsplibInstance| {
                 let start = std::time::Instant::now();
                 let size = instance.heap_size();
                 let heap_size_duration = start.elapsed();
@@ -129,7 +129,7 @@ fn test_greedy_solver() {
     let (problem_id, data) = read_tsp_file("./data/burma14.tsp");
 
     let tsp_instance = try_parse(problem_id, data).expect("failed to read instance");
-    let problem_instance: ProblemInstance =
+    let problem_instance: TsplibInstance =
         tsp_instance.try_into().expect("failed to convert instance");
 
     let solver = tsplib_solver::Greedy {};
@@ -148,7 +148,7 @@ fn test_held_karp_solver() {
     let (problem_id, data) = read_tsp_file("./data/burma14.tsp");
 
     let tsp_instance = try_parse(problem_id, data).expect("failed to read instance");
-    let problem_instance: ProblemInstance =
+    let problem_instance: TsplibInstance =
         tsp_instance.try_into().expect("failed to convert instance");
 
     let solver = tsplib_solver::HeldKarp::try_new(25).expect("failed to create HeldKarp solver");

@@ -11,7 +11,7 @@ pub use held_karp::HeldKarp;
 use errors::SolverError;
 use tsplib_core::{
     context::ExecutionContext,
-    models::{ProblemInstance, TspSolution},
+    models::{TspSolution, TsplibInstance},
 };
 
 pub trait TspSolver {
@@ -30,7 +30,7 @@ pub trait TspSolver {
     ///   (e.g., invalid start node, dimension exceeded, no solution found, etc.).
     fn try_solve_with_context(
         &self,
-        problem: &ProblemInstance,
+        problem: &TsplibInstance,
         start_node: usize,
         ctx: ExecutionContext,
     ) -> Result<TspSolution, SolverError>;
@@ -49,7 +49,7 @@ pub trait TspSolver {
     ///   (e.g., invalid start node, dimension exceeded, no solution found, etc.).
     fn try_solve(
         &self,
-        problem: &ProblemInstance,
+        problem: &TsplibInstance,
         start_node: usize,
     ) -> Result<TspSolution, SolverError> {
         self.try_solve_with_context(problem, start_node, ExecutionContext::default())
@@ -69,7 +69,7 @@ pub trait TspSolver {
     ///     (e.g., invalid start node, start node is a fixed edge target, multiple fixed edges from the same node, etc.).
     fn try_check_problem_validity(
         &self,
-        problem: &ProblemInstance,
+        problem: &TsplibInstance,
         start_node: usize,
     ) -> Result<(HashMap<usize, usize>, HashSet<usize>), SolverError> {
         // check if start_node is valid
