@@ -45,6 +45,14 @@ impl TsplibInstance {
         nodes_size + matrix_size
     }
 
+    /// Tries to get the distance between two nodes from the adjacency matrix.
+    ///
+    /// # Arguments
+    /// * `from` - The ID of the starting node (1-based index).
+    /// * `to` - The ID of the destination node (1-based index).
+    ///
+    /// # Returns
+    /// * `Result<i32, InstanceError>` - The distance between the nodes if valid, or an error if the node IDs are invalid.
     pub fn try_get_distance(&self, from: usize, to: usize) -> Result<i32, InstanceError> {
         if from == 0
             || to == 0
