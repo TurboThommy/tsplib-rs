@@ -1,4 +1,6 @@
-use tsplib_core::models::TsplibInstance;
+use std::collections::HashSet;
+
+use tsplib_core::models::{TspSolution, TsplibInstance};
 
 use crate::{PerfectMatchingAlgorithm, TspSolver, errors::SolverError, matcher::GreedyMatching};
 
@@ -67,14 +69,75 @@ impl TspSolver for Christofides {
         let mut multigraph = mst.clone();
         multigraph.edges.extend(matching);
 
-        // check for cancellation before finding the Eulerian tour, as it can be expensive for large instances
+        // check for cancellation before finding the Eulerian tour
         if ctx.is_cancelled() {
             return Err(SolverError::Cancelled);
         }
 
         // find an Eulerian tour in the multigraph
-        let _eulerian_circuit = multigraph.try_get_eulerian_circuit()?;
+        let eulerian_circuit = multigraph.try_get_eulerian_circuit()?;
 
-        todo!()
+        // check for cancellation before shortcutting the Eulerian circuit
+        if ctx.is_cancelled() {
+            return Err(SolverError::Cancelled);
+        }
+
+        // find the tsp tour
+        let tsp_tour = shortcut_eulerian_circuit(&eulerian_circuit);
+
+        // compute the total cost of the tour
+        let tour_cost = try_calculate_tour_cost(&tsp_tour, problem)?;
+
+        Ok(TspSolution {
+            tour: tsp_tour,
+            cost: tour_cost,
+        })
     }
+}
+
+/// Shortcuts an Eulerian circuit to create a TSP tour by skipping already visited nodes while traversing the circuit.
+///
+/// # Arguments
+/// * `circuit` - A slice of node IDs representing the Eulerian circuit
+///
+/// # Returns
+/// * `Vec<usize>` - A vector of node IDs representing the TSP tour
+fn shortcut_eulerian_circuit(circuit: &[usize]) -> Vec<usize> {
+    let mut visited: HashSet<usize> = HashSet::new();
+    let mut tour = Vec::new();
+
+    // iterate through the Eulerian circuit and add nodes to the tour, skipping already visited nodes
+    for &node in circuit {
+        if visited.insert(node) {
+            tour.push(node);
+        }
+    }
+
+    // close the tour by returning to the starting node
+    if let Some(&first_node) = tour.first() {
+        tour.push(first_node);
+    }
+
+    tour
+}
+
+/// Calculates the total cost of a TSP tour by summing the distances between consecutive nodes in the tour.
+///
+/// # Arguments
+/// * `tour` - A slice of node IDs representing the TSP tour
+/// * `problem` - The TSP instance containing the distance information
+///
+/// # Returns
+/// * `Result<i64, SolverError>` - The total cost of the tour, or an error if distance retrieval fails for any edge in the tour.
+fn try_calculate_tour_cost(tour: &[usize], problem: &TsplibInstance) -> Result<i64, SolverError> {
+    tour.windows(2)
+        .map(|window| {
+            let u = window[0];
+            let v = window[1];
+            problem
+                .try_get_distance(u, v)
+                .map(i64::from)
+                .map_err(Into::into)
+        })
+        .sum::<Result<i64, SolverError>>()
 }

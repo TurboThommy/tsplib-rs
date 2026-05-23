@@ -12,18 +12,28 @@ use tsplib_solver::TspSolver;
 
 /// The main function serves as the entry point of the program, calling the test functions for parsing TSP files.
 fn main() {
-    let now = Instant::now();
-    // test_parse();
-    // test_try_parse();
-    // test_edge_weight_matrix_conversion();
-    // test_graph_conversion();
-    // test_instance_to_string();
-    // test_greedy_solver();
-    // test_held_karp_solver();
-    // test_kruskal();
-    // test_prim();
-    test_boruvka();
-    println!("Total execution time: {:.2?}", now.elapsed());
+    let tests: Vec<(&str, fn())> = vec![
+        // ("test_parse", test_parse),
+        // ("test_try_parse", test_try_parse),
+        // (
+        //     "test_edge_weight_matrix_conversion",
+        //     test_edge_weight_matrix_conversion,
+        // ),
+        // ("test_graph_conversion", test_graph_conversion),
+        // ("test_instance_to_string", test_instance_to_string),
+        ("test_greedy_solver", test_greedy_solver),
+        ("test_held_karp_solver", test_held_karp_solver),
+        ("test_christofides_solver", test_christofides_solver),
+        // ("test_kruskal", test_kruskal),
+        // ("test_prim", test_prim),
+        // ("test_boruvka", test_boruvka),
+    ];
+
+    for (name, test) in tests {
+        let now = Instant::now();
+        test();
+        println!("{} finished in: {:.2?}", name, now.elapsed());
+    }
 }
 
 /// Tests the `parse` function by reading TSP files from the "./data" directory, parsing them, and printing the results.
@@ -159,6 +169,25 @@ fn test_held_karp_solver() {
         tsp_instance.try_into().expect("failed to convert instance");
 
     let solver = tsplib_solver::HeldKarp::try_new(25).expect("failed to create HeldKarp solver");
+    let solution = solver
+        .try_solve(&problem_instance, 1)
+        .expect("failed to solve instance");
+
+    println!("Tour: {:?}", solution.tour);
+    println!("Total distance: {}", solution.cost);
+}
+
+#[allow(dead_code)]
+fn test_christofides_solver() {
+    println!("Testing Christofides solver");
+
+    let (problem_id, data) = read_tsp_file("./data/burma14.tsp");
+
+    let tsp_instance = try_parse(problem_id, data).expect("failed to read instance");
+    let problem_instance: TsplibInstance =
+        tsp_instance.try_into().expect("failed to convert instance");
+
+    let solver = tsplib_solver::Christofides::new();
     let solution = solver
         .try_solve(&problem_instance, 1)
         .expect("failed to solve instance");
