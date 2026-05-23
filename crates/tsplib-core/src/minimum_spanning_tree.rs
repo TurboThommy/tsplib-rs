@@ -111,3 +111,69 @@ pub fn try_get_mst_kruskal(
 
     Ok(t)
 }
+
+/// Computes the minimum spanning tree (MST) of a TSP instance using Prim's algorithm starting from a specified node and returns the resulting edges and their weights.
+///
+/// # Arguments
+/// * `tsplib_instance` - The TSP instance for which to compute the MST.
+/// * `start_node` - The ID of the starting node for Prim's algorithm (1-based index).
+/// # Returns
+/// * `Result<Vec<(usize, usize, i32)>, ConversionError>` - A result containing a vector of edges in the MST (each edge is represented as a tuple of the two node IDs and the edge weight)
+///   or an error if the adjacency matrix is empty or the start node is invalid.
+pub fn try_get_mst_prim(
+    tsplib_instance: &TsplibInstance,
+    start_node: usize,
+) -> Result<Vec<(usize, usize, i32)>, ConversionError> {
+    let matrix = &tsplib_instance.adjacency_matrix;
+    let n = matrix.len();
+
+    // check if adjacency matrix is empty
+    if matrix.is_empty() {
+        println!("Adjacency matrix is empty, cannot compute MST");
+        return Err(ConversionError::EmptyAdjacencyMatrix);
+    }
+
+    // check if start_node is valid
+    if start_node == 0 || start_node > n {
+        return Err(ConversionError::InvalidStartNode(start_node, n));
+    }
+
+    let mut in_mst = vec![false; n];
+    // store the weight of the best edge connecting node v to the growing MST
+    let mut best_weight = vec![i32::MAX; n];
+    // store the parent of each node in the MST
+    let mut parent: Vec<Option<usize>> = vec![None; n];
+
+    // resulting edges of the MST
+    let mut t = Vec::with_capacity(n - 1);
+
+    best_weight[start_node - 1] = 0;
+
+    for _ in 0..n {
+        // find the node u that is not yet in the MST and has the smallest best_weight
+        let u = (0..n)
+            .filter(|&v| !in_mst[v])
+            .min_by_key(|&v| best_weight[v])
+            .ok_or_else(|| ConversionError::PrimMstError("Disconnected graph".to_string()))?;
+
+        in_mst[u] = true;
+
+        if let Some(p) = parent[u] {
+            t.push((p + 1, u + 1, best_weight[u]));
+        }
+
+        // update the best weights for nodes not yet in the MST
+        for v in 0..n {
+            if !in_mst[v] {
+                let weight = matrix[u][v];
+
+                if weight < best_weight[v] {
+                    best_weight[v] = weight;
+                    parent[v] = Some(u);
+                }
+            }
+        }
+    }
+
+    Ok(t)
+}

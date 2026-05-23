@@ -15,8 +15,10 @@ fn main() {
     // test_edge_weight_matrix_conversion();
     // test_graph_conversion();
     // test_instance_to_string();
-    test_greedy_solver();
-    test_held_karp_solver();
+    // test_greedy_solver();
+    // test_held_karp_solver();
+    // test_kruskal();
+    test_prim();
 }
 
 /// Tests the `parse` function by reading TSP files from the "./data" directory, parsing them, and printing the results.
@@ -158,4 +160,44 @@ fn test_held_karp_solver() {
 
     println!("Tour: {:?}", solution.tour);
     println!("Total distance: {}", solution.cost);
+}
+
+#[allow(dead_code)]
+fn test_kruskal() {
+    println!("Testing Kruskal's algorithm");
+
+    let (problem_id, data) = read_tsp_file("./data/burma14.tsp");
+
+    let tsp_instance = try_parse(problem_id, data).expect("failed to read instance");
+    let problem_instance: TsplibInstance =
+        tsp_instance.try_into().expect("failed to convert instance");
+
+    let mst = problem_instance
+        .try_get_mst_kruskal()
+        .expect("failed to compute MST using Kruskal's algorithm");
+
+    println!("Edges in the MST:");
+    mst.iter().for_each(|(u, v, weight)| {
+        println!("Edge: {} - {}, weight: {}", u, v, weight);
+    });
+}
+
+#[allow(dead_code)]
+fn test_prim() {
+    println!("Testing Prim's algorithm");
+
+    let (problem_id, data) = read_tsp_file("./data/burma14.tsp");
+
+    let tsp_instance = try_parse(problem_id, data).expect("failed to read instance");
+    let problem_instance: TsplibInstance =
+        tsp_instance.try_into().expect("failed to convert instance");
+
+    let mst = problem_instance
+        .try_get_mst_prim(1)
+        .expect("failed to compute MST using Prim's algorithm");
+
+    println!("Edges in the MST:");
+    mst.iter().for_each(|(u, v, weight)| {
+        println!("Edge: {} - {}, weight: {}", u, v, weight);
+    });
 }

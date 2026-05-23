@@ -5,7 +5,7 @@ use serde::Serialize;
 use crate::{
     context::ExecutionContext,
     enums::{ConversionError, InstanceError, ProblemType},
-    minimum_spanning_tree::try_get_mst_kruskal,
+    minimum_spanning_tree::{try_get_mst_kruskal, try_get_mst_prim},
     models::{Node, TsplibDefinition},
 };
 
@@ -76,6 +76,22 @@ impl TsplibInstance {
     ///   where each edge is represented as a tuple of (node1_id, node2_id, distance). Returns an error if the MST cannot be computed.
     pub fn try_get_mst_kruskal(&self) -> Result<Vec<(usize, usize, i32)>, ConversionError> {
         try_get_mst_kruskal(self)
+    }
+
+    /// Tries to compute the minimum spanning tree (MST) of the TSP instance using Prim's algorithm starting from a specified node.
+    ///
+    /// # Arguments
+    /// * `start_node` - The ID of the starting node for Prim's algorithm (1-based index).
+    ///
+    /// # Returns
+    /// * `Result<Vec<(usize, usize, i32)>, ConversionError>` - A vector of edges in the MST,
+    ///   where each edge is represented as a tuple of (node1_id, node2_id, distance).
+    ///   Returns an error if the MST cannot be computed or if the start node is invalid.
+    pub fn try_get_mst_prim(
+        &self,
+        start_node: usize,
+    ) -> Result<Vec<(usize, usize, i32)>, ConversionError> {
+        try_get_mst_prim(self, start_node)
     }
 }
 
