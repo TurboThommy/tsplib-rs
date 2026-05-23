@@ -182,8 +182,8 @@ fn test_kruskal() {
         .expect("failed to compute MST using Kruskal's algorithm");
 
     println!("Edges in the MST:");
-    mst.iter().for_each(|(u, v, weight)| {
-        println!("Edge: {} - {}, weight: {}", u, v, weight);
+    mst.edges.iter().for_each(|edge| {
+        println!("Edge: {} - {}, weight: {}", edge.u, edge.v, edge.weight);
     });
 }
 
@@ -209,8 +209,8 @@ fn test_prim() {
     println!("Computing MST took {:.2?}", mst_time.elapsed());
 
     println!("Edges in the MST:");
-    mst.iter().for_each(|(u, v, weight)| {
-        println!("Edge: {} - {}, weight: {}", u, v, weight);
+    mst.edges.iter().for_each(|edge| {
+        println!("Edge: {} - {}, weight: {}", edge.u, edge.v, edge.weight);
     });
 }
 
@@ -236,7 +236,7 @@ fn test_boruvka() {
     println!("Computing MST took {:.2?}", mst_time.elapsed());
 
     println!("Edges in the MST:");
-    mst.iter().for_each(|(u, v, weight)| {
-        println!("Edge: {} - {}, weight: {}", u, v, weight);
+    mst.edges.iter().for_each(|edge| {
+        println!("Edge: {} - {}, weight: {}", edge.u, edge.v, edge.weight);
     });
 }

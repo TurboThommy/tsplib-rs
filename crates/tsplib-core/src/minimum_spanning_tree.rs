@@ -1,19 +1,13 @@
 use itertools::Itertools;
 
-use crate::{enums::MstComputationError, models::TsplibInstance};
+use crate::enums::MstComputationError;
+use crate::models::{Edge, Graph, TsplibInstance};
 
 /// A union-find (disjoint set) data structure for Kruskal's algorithm.
 #[derive(Debug)]
 struct UnionFind {
     parent: Vec<usize>,
     rank: Vec<usize>,
-}
-
-#[derive(Debug, Copy, Clone)]
-struct Edge {
-    u: usize,
-    v: usize,
-    weight: i32,
 }
 
 impl UnionFind {
@@ -82,9 +76,10 @@ impl UnionFind {
 ///
 /// # Arguments
 /// * `tsplib_instance` - The TSP instance for which to compute the MST.
-pub fn try_get_mst_kruskal(
-    tsplib_instance: &TsplibInstance,
-) -> Result<Vec<(usize, usize, i32)>, MstComputationError> {
+///
+/// # Returns
+/// * `Result<Graph, ConversionError>` - Graph struct containing the edges in the MST, or an error if the MST cannot be computed.
+pub fn try_get_mst_kruskal(tsplib_instance: &TsplibInstance) -> Result<Graph, MstComputationError> {
     let matrix = &tsplib_instance.adjacency_matrix;
 
     if matrix.is_empty() {
@@ -117,7 +112,13 @@ pub fn try_get_mst_kruskal(
         }
     }
 
-    Ok(t)
+    Ok(Graph {
+        nodes: tsplib_instance.nodes.clone(),
+        edges: t
+            .iter()
+            .map(|&(u, v, weight)| Edge { u, v, weight })
+            .collect(),
+    })
 }
 
 /// Computes the minimum spanning tree (MST) of a TSP instance using Prim's algorithm starting from a specified node and returns the resulting edges and their weights.
@@ -126,12 +127,12 @@ pub fn try_get_mst_kruskal(
 /// * `tsplib_instance` - The TSP instance for which to compute the MST.
 /// * `start_node` - The ID of the starting node for Prim's algorithm (1-based index).
 /// # Returns
-/// * `Result<Vec<(usize, usize, i32)>, ConversionError>` - A result containing a vector of edges in the MST (each edge is represented as a tuple of the two node IDs and the edge weight)
+/// * `Result<Graph, ConversionError>` - Graph struct containing the edges in the MST,
 ///   or an error if the adjacency matrix is empty or the start node is invalid.
 pub fn try_get_mst_prim(
     tsplib_instance: &TsplibInstance,
     start_node: usize,
-) -> Result<Vec<(usize, usize, i32)>, MstComputationError> {
+) -> Result<Graph, MstComputationError> {
     let matrix = &tsplib_instance.adjacency_matrix;
     let n = matrix.len();
 
@@ -184,7 +185,13 @@ pub fn try_get_mst_prim(
         }
     }
 
-    Ok(t)
+    Ok(Graph {
+        nodes: tsplib_instance.nodes.clone(),
+        edges: t
+            .iter()
+            .map(|&(u, v, weight)| Edge { u, v, weight })
+            .collect(),
+    })
 }
 
 /// Computes the minimum spanning tree (MST) of a TSP instance using Borůvka's algorithm and returns the resulting edges and their weights.
@@ -193,11 +200,9 @@ pub fn try_get_mst_prim(
 /// * `tsplib_instance` - The TSP instance for which to compute the MST.
 ///
 /// # Returns
-/// * `Result<Vec<(usize, usize, i32)>, ConversionError>` - A result containing a vector of edges in the MST (each edge is represented as a tuple of the two node IDs and the edge weight)
+/// * `Result<Graph, ConversionError>` - Graph struct containing the edges in the MST,
 ///   or an error if the MST cannot be computed.
-pub fn try_get_mst_boruvka(
-    tsplib_instance: &TsplibInstance,
-) -> Result<Vec<(usize, usize, i32)>, MstComputationError> {
+pub fn try_get_mst_boruvka(tsplib_instance: &TsplibInstance) -> Result<Graph, MstComputationError> {
     fn update_cheapest(cheapest: &mut [Option<Edge>], root: usize, edge: Edge) {
         if cheapest[root].is_none_or(|current| edge.weight < current.weight) {
             cheapest[root] = Some(edge);
@@ -266,11 +271,8 @@ pub fn try_get_mst_boruvka(
         }
     }
 
-    // convert edges to the expected output format
-    let result = t
-        .into_iter()
-        .map(|edge| (edge.u, edge.v, edge.weight))
-        .collect::<Vec<_>>();
-
-    Ok(result)
+    Ok(Graph {
+        nodes: tsplib_instance.nodes.clone(),
+        edges: t,
+    })
 }

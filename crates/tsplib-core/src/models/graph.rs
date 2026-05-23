@@ -1,10 +1,13 @@
-//! This module defines the `Node` struct, which represents a node in a graph with its coordinates and provides methods to calculate various types of distances between nodes.
-use serde::Serialize;
+//! This module defines data structures for representing graphs, including nodes, edges, and the graph itself.
+//! It also includes helper functions to calculate distances between nodes.
+
+use std::collections::HashMap;
 
 use crate::distances::*;
+use serde::Serialize;
 
 /// A struct representing the node of a graph.
-#[derive(Debug, Serialize)]
+#[derive(Debug, Copy, Clone, Serialize)]
 pub struct Node {
     /// The unique identifier of the node.
     pub id: usize,
@@ -14,6 +17,25 @@ pub struct Node {
     pub y: f64,
     /// The optional z-coordinate of the node, which may be used for 3D coordinates.
     pub z: Option<f64>,
+}
+
+/// A struct representing an edge between two nodes in a graph, with its weight.
+#[derive(Debug, Copy, Clone)]
+pub struct Edge {
+    /// The ID of the first node.
+    pub u: usize,
+    /// The ID of the second node.
+    pub v: usize,
+    /// The weight of the edge.
+    pub weight: i32,
+}
+
+/// A struct representing a graph, consisting of a collection of nodes and edges.
+pub struct Graph {
+    /// The nodes in the graph.
+    pub nodes: Vec<Node>,
+    /// The edges in the graph.
+    pub edges: Vec<Edge>,
 }
 
 impl Node {
@@ -137,5 +159,22 @@ impl Node {
     ///   Returns 0 if the nodes are the same (i.e., have the same ID).
     pub(super) fn _distance_geo(&self, other: &Node) -> i32 {
         distance_geo((self.id, self.x, self.y), (other.id, other.x, other.y))
+    }
+}
+
+impl Graph {
+    /// Calculates the degree of each node in the graph and returns a `HashMap` mapping node IDs to their degrees.
+    ///
+    /// # Returns
+    /// * `HashMap<usize, usize>` - A `HashMap` where the keys are node IDs and the values are the corresponding degrees of those nodes in the graph.
+    pub fn get_degrees(&self) -> HashMap<usize, usize> {
+        let mut degrees = HashMap::new();
+
+        self.edges.iter().for_each(|edge| {
+            *degrees.entry(edge.u).or_insert(0) += 1;
+            *degrees.entry(edge.v).or_insert(0) += 1;
+        });
+
+        degrees
     }
 }

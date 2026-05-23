@@ -6,7 +6,7 @@ use crate::{
     context::ExecutionContext,
     enums::{ConversionError, InstanceError, MstComputationError, ProblemType},
     minimum_spanning_tree::{try_get_mst_boruvka, try_get_mst_kruskal, try_get_mst_prim},
-    models::{Node, TsplibDefinition},
+    models::{Graph, Node, TsplibDefinition},
 };
 
 /// Represents a TSP problem instance as graph (collection of nodes and an adjacency matrix).
@@ -72,9 +72,8 @@ impl TsplibInstance {
     /// Tries to compute the minimum spanning tree (MST) of the TSP instance using Kruskal's algorithm.
     ///
     /// # Returns
-    /// * `Result<Vec<(usize, usize, i32)>, MstComputationError>` - A vector of edges in the MST,
-    ///   where each edge is represented as a tuple of (node1_id, node2_id, distance). Returns an error if the MST cannot be computed.
-    pub fn try_get_mst_kruskal(&self) -> Result<Vec<(usize, usize, i32)>, MstComputationError> {
+    /// * `Result<Graph, ConversionError>` - Graph struct containing the edges in the MST, or an error if the MST cannot be computed.
+    pub fn try_get_mst_kruskal(&self) -> Result<Graph, MstComputationError> {
         try_get_mst_kruskal(self)
     }
 
@@ -84,22 +83,17 @@ impl TsplibInstance {
     /// * `start_node` - The ID of the starting node for Prim's algorithm (1-based index).
     ///
     /// # Returns
-    /// * `Result<Vec<(usize, usize, i32)>, MstComputationError>` - A vector of edges in the MST,
-    ///   where each edge is represented as a tuple of (node1_id, node2_id, distance).
-    ///   Returns an error if the MST cannot be computed or if the start node is invalid.
-    pub fn try_get_mst_prim(
-        &self,
-        start_node: usize,
-    ) -> Result<Vec<(usize, usize, i32)>, MstComputationError> {
+    /// * `Result<Graph, ConversionError>` - Graph struct containing the edges in the MST,
+    ///   or an error if the adjacency matrix is empty or the start node is invalid.
+    pub fn try_get_mst_prim(&self, start_node: usize) -> Result<Graph, MstComputationError> {
         try_get_mst_prim(self, start_node)
     }
 
     /// Tries to compute the minimum spanning tree (MST) of the TSP instance using Borůvka's algorithm.
     ///
     /// # Returns
-    /// * `Result<Vec<(usize, usize, i32)>, MstComputationError>` - A vector of edges in the MST,
-    ///   where each edge is represented as a tuple of (node1_id, node2_id, distance). Returns an error if the MST cannot be computed.
-    pub fn try_get_mst_boruvka(&self) -> Result<Vec<(usize, usize, i32)>, MstComputationError> {
+    /// * `Result<Graph, ConversionError>` - Graph struct containing the edges in the MST, or an error if the MST cannot be computed.
+    pub fn try_get_mst_boruvka(&self) -> Result<Graph, MstComputationError> {
         try_get_mst_boruvka(self)
     }
 }
