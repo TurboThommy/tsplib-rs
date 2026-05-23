@@ -5,7 +5,7 @@ use serde::Serialize;
 use crate::{
     context::ExecutionContext,
     enums::{ConversionError, InstanceError, ProblemType},
-    minimum_spanning_tree::{try_get_mst_kruskal, try_get_mst_prim},
+    minimum_spanning_tree::{try_get_mst_boruvka, try_get_mst_kruskal, try_get_mst_prim},
     models::{Node, TsplibDefinition},
 };
 
@@ -92,6 +92,15 @@ impl TsplibInstance {
         start_node: usize,
     ) -> Result<Vec<(usize, usize, i32)>, ConversionError> {
         try_get_mst_prim(self, start_node)
+    }
+
+    /// Tries to compute the minimum spanning tree (MST) of the TSP instance using Borůvka's algorithm.
+    ///
+    /// # Returns
+    /// * `Result<Vec<(usize, usize, i32)>, ConversionError>` - A vector of edges in the MST,
+    ///   where each edge is represented as a tuple of (node1_id, node2_id, distance). Returns an error if the MST cannot be computed.
+    pub fn try_get_mst_boruvka(&self) -> Result<Vec<(usize, usize, i32)>, ConversionError> {
+        try_get_mst_boruvka(self)
     }
 }
 

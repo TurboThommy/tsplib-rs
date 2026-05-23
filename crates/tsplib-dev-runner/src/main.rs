@@ -1,4 +1,6 @@
 //! This module contains the main function and test functions for parsing TSP files and converting them to graph representations.
+use std::time::Instant;
+
 use itertools::Itertools;
 use tsplib_core::{
     context::ExecutionContext,
@@ -10,6 +12,7 @@ use tsplib_solver::TspSolver;
 
 /// The main function serves as the entry point of the program, calling the test functions for parsing TSP files.
 fn main() {
+    let now = Instant::now();
     // test_parse();
     // test_try_parse();
     // test_edge_weight_matrix_conversion();
@@ -18,7 +21,9 @@ fn main() {
     // test_greedy_solver();
     // test_held_karp_solver();
     // test_kruskal();
-    test_prim();
+    // test_prim();
+    test_boruvka();
+    println!("Total execution time: {:.2?}", now.elapsed());
 }
 
 /// Tests the `parse` function by reading TSP files from the "./data" directory, parsing them, and printing the results.
@@ -186,15 +191,49 @@ fn test_kruskal() {
 fn test_prim() {
     println!("Testing Prim's algorithm");
 
-    let (problem_id, data) = read_tsp_file("./data/burma14.tsp");
+    let (problem_id, data) = read_tsp_file("./data/gr24.tsp");
 
+    let parse_time = Instant::now();
     let tsp_instance = try_parse(problem_id, data).expect("failed to read instance");
+    println!("Parsing instance took {:.2?}", parse_time.elapsed());
+
+    let conversion_time = Instant::now();
     let problem_instance: TsplibInstance =
         tsp_instance.try_into().expect("failed to convert instance");
+    println!("Converting instance took {:.2?}", conversion_time.elapsed());
 
+    let mst_time = Instant::now();
     let mst = problem_instance
         .try_get_mst_prim(1)
         .expect("failed to compute MST using Prim's algorithm");
+    println!("Computing MST took {:.2?}", mst_time.elapsed());
+
+    println!("Edges in the MST:");
+    mst.iter().for_each(|(u, v, weight)| {
+        println!("Edge: {} - {}, weight: {}", u, v, weight);
+    });
+}
+
+#[allow(dead_code)]
+fn test_boruvka() {
+    println!("Testing Borůvka's algorithm");
+
+    let (problem_id, data) = read_tsp_file("./data/gr24.tsp");
+
+    let parse_time = Instant::now();
+    let tsp_instance = try_parse(problem_id, data).expect("failed to read instance");
+    println!("Parsing instance took {:.2?}", parse_time.elapsed());
+
+    let conversion_time = Instant::now();
+    let problem_instance: TsplibInstance =
+        tsp_instance.try_into().expect("failed to convert instance");
+    println!("Converting instance took {:.2?}", conversion_time.elapsed());
+
+    let mst_time = Instant::now();
+    let mst = problem_instance
+        .try_get_mst_boruvka()
+        .expect("failed to compute MST using Borůvka's algorithm");
+    println!("Computing MST took {:.2?}", mst_time.elapsed());
 
     println!("Edges in the MST:");
     mst.iter().for_each(|(u, v, weight)| {

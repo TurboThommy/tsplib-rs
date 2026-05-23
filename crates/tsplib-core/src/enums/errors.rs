@@ -76,4 +76,7 @@ pub enum ConversionError {
 
     #[error("Prim's algorithm failed: {0}")]
     PrimMstError(String),
+
+    #[error("Borůvka's algorithm failed: {0}")]
+    BoruvkaMstError(String),
 }

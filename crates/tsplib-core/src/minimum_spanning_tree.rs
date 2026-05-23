@@ -3,9 +3,17 @@ use itertools::Itertools;
 use crate::{enums::ConversionError, models::TsplibInstance};
 
 /// A union-find (disjoint set) data structure for Kruskal's algorithm.
+#[derive(Debug)]
 struct UnionFind {
     parent: Vec<usize>,
     rank: Vec<usize>,
+}
+
+#[derive(Debug, Copy, Clone)]
+struct Edge {
+    u: usize,
+    v: usize,
+    weight: i32,
 }
 
 impl UnionFind {
@@ -176,4 +184,93 @@ pub fn try_get_mst_prim(
     }
 
     Ok(t)
+}
+
+/// Computes the minimum spanning tree (MST) of a TSP instance using Borůvka's algorithm and returns the resulting edges and their weights.
+///
+/// # Arguments
+/// * `tsplib_instance` - The TSP instance for which to compute the MST.
+///
+/// # Returns
+/// * `Result<Vec<(usize, usize, i32)>, ConversionError>` - A result containing a vector of edges in the MST (each edge is represented as a tuple of the two node IDs and the edge weight)
+///   or an error if the MST cannot be computed.
+pub fn try_get_mst_boruvka(
+    tsplib_instance: &TsplibInstance,
+) -> Result<Vec<(usize, usize, i32)>, ConversionError> {
+    fn update_cheapest(cheapest: &mut [Option<Edge>], root: usize, edge: Edge) {
+        if cheapest[root].is_none_or(|current| edge.weight < current.weight) {
+            cheapest[root] = Some(edge);
+        }
+    }
+
+    let matrix = &tsplib_instance.adjacency_matrix;
+
+    if matrix.is_empty() {
+        println!("Adjacency matrix is empty, cannot compute MST");
+        return Err(ConversionError::EmptyAdjacencyMatrix);
+    }
+
+    let n = matrix.len();
+
+    // get edges without diagonal
+    let edges = (0..(n - 1))
+        .flat_map(|i| {
+            ((i + 1)..n).map(move |j| Edge {
+                u: i + 1,
+                v: j + 1,
+                weight: matrix[i][j],
+            })
+        })
+        .collect::<Vec<_>>();
+
+    // initialize union-find structure for `n` nodes
+    let mut uf = UnionFind::new(n);
+
+    // resulting edges of the MST
+    let mut t = Vec::with_capacity(n - 1);
+
+    // initially, each node is its own component
+    let mut components = n;
+
+    while components > 1 {
+        let mut cheapest = vec![None; n + 1];
+
+        edges.iter().for_each(|&edge| {
+            // find cheapest edge for each component
+
+            let root_u = uf.find(edge.u);
+            let root_v = uf.find(edge.v);
+
+            if root_u != root_v {
+                update_cheapest(&mut cheapest, root_u, edge);
+                update_cheapest(&mut cheapest, root_v, edge);
+            }
+        });
+
+        let before = components;
+
+        // contract the cheapest edges and merge the components using union-find
+        cheapest.into_iter().flatten().for_each(|edge| {
+            if uf.union(edge.u, edge.v) {
+                t.push(edge);
+                components -= 1;
+            }
+        });
+
+        // if no components were merged in an iteration
+        // the graph is disconnected and an MST cannot be formed
+        if components == before {
+            return Err(ConversionError::BoruvkaMstError(
+                "Disconnected graph".to_string(),
+            ));
+        }
+    }
+
+    // convert edges to the expected output format
+    let result = t
+        .into_iter()
+        .map(|edge| (edge.u, edge.v, edge.weight))
+        .collect::<Vec<_>>();
+
+    Ok(result)
 }
