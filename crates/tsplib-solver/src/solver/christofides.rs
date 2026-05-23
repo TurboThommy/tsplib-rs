@@ -56,7 +56,24 @@ impl TspSolver for Christofides {
         // compute a perfect matching on the odd degree vertices
         // TODO: make the perfect matching algorithm configurable (e.g. via ctx)
         let matcher = GreedyMatching::new();
-        let _matching = matcher.try_compute(&odd_vertices, problem)?;
+        let matching = matcher.try_compute(&odd_vertices, problem)?;
+
+        // check for cancellation after perfect matching computation
+        if ctx.is_cancelled() {
+            return Err(SolverError::Cancelled);
+        }
+
+        // combine the edges of the MST and the perfect matching to create a multigraph
+        let mut multigraph = mst.clone();
+        multigraph.edges.extend(matching);
+
+        // check for cancellation before finding the Eulerian tour, as it can be expensive for large instances
+        if ctx.is_cancelled() {
+            return Err(SolverError::Cancelled);
+        }
+
+        // find an Eulerian tour in the multigraph
+        let _eulerian_circuit = multigraph.try_get_eulerian_circuit()?;
 
         todo!()
     }

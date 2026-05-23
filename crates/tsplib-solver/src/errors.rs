@@ -2,6 +2,7 @@
 
 use thiserror::Error;
 use tsplib_core::enums::{
+    GraphError,
     InstanceError::{self, DistanceInvalidNodeId},
     MstComputationError,
 };
@@ -38,6 +39,8 @@ pub enum SolverError {
     GetMstError(String),
     #[error("Error finding perfect matching: {0}")]
     MatcherError(String),
+    #[error("Error finding Eulerian circuit: {0}")]
+    EulerianCircuitError(String),
 }
 
 #[derive(Error, Debug)]
@@ -67,5 +70,17 @@ impl From<MstComputationError> for SolverError {
 impl From<MatcherError> for SolverError {
     fn from(value: MatcherError) -> Self {
         SolverError::MatcherError(value.to_string())
+    }
+}
+
+impl From<GraphError> for SolverError {
+    fn from(value: GraphError) -> Self {
+        match value {
+            GraphError::EulerianCircuitOddDegreeError
+            | GraphError::EulerianCircuitDisconnectedGraphError
+            | GraphError::EulerianCircuitEmptyGraphError => {
+                SolverError::EulerianCircuitError(value.to_string())
+            }
+        }
     }
 }

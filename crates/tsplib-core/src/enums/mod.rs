@@ -17,6 +17,6 @@ pub use display_data_type::DisplayDataType;
 pub use edge_data_format::EdgeDataFormat;
 pub use edge_weight_format::EdgeWeightFormat;
 pub use edge_weight_type::EdgeWeightType;
-pub use errors::{ConversionError, InstanceError, IoError, MstComputationError};
+pub use errors::{ConversionError, GraphError, InstanceError, IoError, MstComputationError};
 pub use node_coord_type::NodeCoordType;
 pub use problem_type::ProblemType;
