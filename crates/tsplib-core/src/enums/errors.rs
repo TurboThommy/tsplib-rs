@@ -67,12 +67,12 @@ pub enum ConversionError {
 
     #[error("The execution was cancelled before the algorithm could complete.")]
     Cancelled,
+}
 
-    #[error("The adjacency matrix is empty")]
+#[derive(Error, Debug)]
+pub enum MstComputationError {
+    #[error("Adjacency matrix is empty, cannot compute MST.")]
     EmptyAdjacencyMatrix,
-
-    #[error("Invalid start node {0}. Valid node IDs are between 1 and {1}")]
-    InvalidStartNode(usize, usize),
 
     #[error("Prim's algorithm failed: {0}")]
     PrimMstError(String),

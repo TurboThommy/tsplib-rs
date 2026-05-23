@@ -1,6 +1,6 @@
 use itertools::Itertools;
 
-use crate::{enums::ConversionError, models::TsplibInstance};
+use crate::{enums::MstComputationError, models::TsplibInstance};
 
 /// A union-find (disjoint set) data structure for Kruskal's algorithm.
 #[derive(Debug)]
@@ -84,12 +84,12 @@ impl UnionFind {
 /// * `tsplib_instance` - The TSP instance for which to compute the MST.
 pub fn try_get_mst_kruskal(
     tsplib_instance: &TsplibInstance,
-) -> Result<Vec<(usize, usize, i32)>, ConversionError> {
+) -> Result<Vec<(usize, usize, i32)>, MstComputationError> {
     let matrix = &tsplib_instance.adjacency_matrix;
 
     if matrix.is_empty() {
         println!("Adjacency matrix is empty, cannot compute MST");
-        return Err(ConversionError::EmptyAdjacencyMatrix);
+        return Err(MstComputationError::EmptyAdjacencyMatrix);
     }
 
     // resulting edges of the MST
@@ -131,19 +131,20 @@ pub fn try_get_mst_kruskal(
 pub fn try_get_mst_prim(
     tsplib_instance: &TsplibInstance,
     start_node: usize,
-) -> Result<Vec<(usize, usize, i32)>, ConversionError> {
+) -> Result<Vec<(usize, usize, i32)>, MstComputationError> {
     let matrix = &tsplib_instance.adjacency_matrix;
     let n = matrix.len();
 
     // check if adjacency matrix is empty
     if matrix.is_empty() {
-        println!("Adjacency matrix is empty, cannot compute MST");
-        return Err(ConversionError::EmptyAdjacencyMatrix);
+        return Err(MstComputationError::EmptyAdjacencyMatrix);
     }
 
     // check if start_node is valid
     if start_node == 0 || start_node > n {
-        return Err(ConversionError::InvalidStartNode(start_node, n));
+        return Err(MstComputationError::PrimMstError(
+            "Invalid start node provided".to_string(),
+        ));
     }
 
     let mut in_mst = vec![false; n];
@@ -162,7 +163,7 @@ pub fn try_get_mst_prim(
         let u = (0..n)
             .filter(|&v| !in_mst[v])
             .min_by_key(|&v| best_weight[v])
-            .ok_or_else(|| ConversionError::PrimMstError("Disconnected graph".to_string()))?;
+            .ok_or_else(|| MstComputationError::PrimMstError("Disconnected graph".to_string()))?;
 
         in_mst[u] = true;
 
@@ -196,7 +197,7 @@ pub fn try_get_mst_prim(
 ///   or an error if the MST cannot be computed.
 pub fn try_get_mst_boruvka(
     tsplib_instance: &TsplibInstance,
-) -> Result<Vec<(usize, usize, i32)>, ConversionError> {
+) -> Result<Vec<(usize, usize, i32)>, MstComputationError> {
     fn update_cheapest(cheapest: &mut [Option<Edge>], root: usize, edge: Edge) {
         if cheapest[root].is_none_or(|current| edge.weight < current.weight) {
             cheapest[root] = Some(edge);
@@ -206,8 +207,7 @@ pub fn try_get_mst_boruvka(
     let matrix = &tsplib_instance.adjacency_matrix;
 
     if matrix.is_empty() {
-        println!("Adjacency matrix is empty, cannot compute MST");
-        return Err(ConversionError::EmptyAdjacencyMatrix);
+        return Err(MstComputationError::EmptyAdjacencyMatrix);
     }
 
     let n = matrix.len();
@@ -260,7 +260,7 @@ pub fn try_get_mst_boruvka(
         // if no components were merged in an iteration
         // the graph is disconnected and an MST cannot be formed
         if components == before {
-            return Err(ConversionError::BoruvkaMstError(
+            return Err(MstComputationError::BoruvkaMstError(
                 "Disconnected graph".to_string(),
             ));
         }
