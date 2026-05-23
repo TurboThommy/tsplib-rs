@@ -1,18 +1,39 @@
 //! This crate provides a trait for solving the Traveling Salesman Problem (TSP) using various algorithms.
 pub mod errors;
-pub mod greedy;
-pub mod held_karp;
+pub mod matcher;
+pub mod solver;
 
 use std::collections::{HashMap, HashSet};
 
-pub use greedy::Greedy;
-pub use held_karp::HeldKarp;
+pub use solver::Christofides;
+pub use solver::Greedy;
+pub use solver::HeldKarp;
 
-use errors::SolverError;
+use errors::{MatcherError, SolverError};
 use tsplib_core::{
     context::ExecutionContext,
-    models::{TspSolution, TsplibInstance},
+    models::{Edge, TspSolution, TsplibInstance},
 };
+
+pub trait PerfectMatchingAlgorithm {
+    /// Creates a new instance of the perfect matching algorithm.
+    fn new() -> Self;
+
+    /// Computes a perfect matching on the given set of odd vertices for the TSP instance.
+    ///
+    /// # Arguments
+    /// * `odd_vertices` - A slice of node IDs representing the odd degree vertices in the minimum spanning tree of the TSP instance.
+    /// * `problem` - A reference to the `TsplibInstance` representing the TSP problem, which may be needed to compute distances between vertices.
+    ///
+    /// # Returns
+    /// * `Result<Vec<Edge>, MatcherError>` - On success, returns a vector of `Edge` structs representing the edges in the perfect matching.
+    ///   On failure, returns a `MatcherError` indicating the reason for the failure (e.g., no perfect matching found, invalid input, etc.).
+    fn try_compute(
+        &self,
+        odd_vertices: &[usize],
+        problem: &TsplibInstance,
+    ) -> Result<Vec<Edge>, MatcherError>;
+}
 
 pub trait TspSolver {
     /// Solves the TSP problem for the given problem instance and starting node, using the provided execution context.
