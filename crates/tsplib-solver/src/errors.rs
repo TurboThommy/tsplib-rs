@@ -56,6 +56,10 @@ pub enum MatcherError {
     BlossomVError(String),
     #[error("Matcher failed due to a distance retrieval error: {0}")]
     DistanceRetrievalError(String),
+    #[error(
+        "Blossom V algorithm is not available. Ensure that the blossom-v feature is enabled and the library is properly set up."
+    )]
+    BlossomVNotAvailable,
 }
 
 impl From<InstanceError> for SolverError {
