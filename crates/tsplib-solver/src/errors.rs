@@ -1,7 +1,11 @@
 //! This module defines the SolverError enum, which represents errors that can occur during TSP solving.
 
 use thiserror::Error;
-use tsplib_core::enums::InstanceError::{self, DistanceInvalidNodeId};
+use tsplib_core::enums::{
+    GraphError,
+    InstanceError::{self, DistanceInvalidNodeId},
+    MstComputationError,
+};
 
 #[derive(Error, Debug)]
 pub enum SolverError {
@@ -29,6 +33,22 @@ pub enum SolverError {
     InvalidParentTable,
     #[error("Solver was cancelled.")]
     Cancelled,
+    #[error("Fixed edges are not supported by this solver.")]
+    FixedEdgesNotSupported,
+    #[error("Error during minimum spanning tree computation: {0}")]
+    GetMstError(String),
+    #[error("Error finding perfect matching: {0}")]
+    MatcherError(String),
+    #[error("Error finding Eulerian circuit: {0}")]
+    EulerianCircuitError(String),
+}
+
+#[derive(Error, Debug)]
+pub enum MatcherError {
+    #[error("Odd vertex count should be even. Found {0} odd vertices.")]
+    OddVertexCountError(usize),
+    #[error("No matching candidate found for vertex {0}.")]
+    NoMatchingCandidate(usize),
 }
 
 impl From<InstanceError> for SolverError {
@@ -36,6 +56,30 @@ impl From<InstanceError> for SolverError {
         match value {
             DistanceInvalidNodeId(_, _, _) => {
                 SolverError::DistanceRetrievalError(value.to_string())
+            }
+        }
+    }
+}
+
+impl From<MstComputationError> for SolverError {
+    fn from(value: MstComputationError) -> Self {
+        SolverError::GetMstError(value.to_string())
+    }
+}
+
+impl From<MatcherError> for SolverError {
+    fn from(value: MatcherError) -> Self {
+        SolverError::MatcherError(value.to_string())
+    }
+}
+
+impl From<GraphError> for SolverError {
+    fn from(value: GraphError) -> Self {
+        match value {
+            GraphError::EulerianCircuitOddDegreeError
+            | GraphError::EulerianCircuitDisconnectedGraphError
+            | GraphError::EulerianCircuitEmptyGraphError => {
+                SolverError::EulerianCircuitError(value.to_string())
             }
         }
     }

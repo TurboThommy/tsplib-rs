@@ -4,8 +4,9 @@ use serde::Serialize;
 
 use crate::{
     context::ExecutionContext,
-    enums::{ConversionError, InstanceError, ProblemType},
-    models::{Node, TsplibDefinition},
+    enums::{ConversionError, InstanceError, MstComputationError, ProblemType},
+    minimum_spanning_tree::{try_get_mst_boruvka, try_get_mst_kruskal, try_get_mst_prim},
+    models::{Graph, Node, TsplibDefinition},
 };
 
 /// Represents a TSP problem instance as graph (collection of nodes and an adjacency matrix).
@@ -45,6 +46,14 @@ impl TsplibInstance {
         nodes_size + matrix_size
     }
 
+    /// Tries to get the distance between two nodes from the adjacency matrix.
+    ///
+    /// # Arguments
+    /// * `from` - The ID of the starting node (1-based index).
+    /// * `to` - The ID of the destination node (1-based index).
+    ///
+    /// # Returns
+    /// * `Result<i32, InstanceError>` - The distance between the nodes if valid, or an error if the node IDs are invalid.
     pub fn try_get_distance(&self, from: usize, to: usize) -> Result<i32, InstanceError> {
         if from == 0
             || to == 0
@@ -58,6 +67,34 @@ impl TsplibInstance {
             ));
         }
         Ok(self.adjacency_matrix[from - 1][to - 1])
+    }
+
+    /// Tries to compute the minimum spanning tree (MST) of the TSP instance using Kruskal's algorithm.
+    ///
+    /// # Returns
+    /// * `Result<Graph, ConversionError>` - Graph struct containing the edges in the MST, or an error if the MST cannot be computed.
+    pub fn try_get_mst_kruskal(&self) -> Result<Graph, MstComputationError> {
+        try_get_mst_kruskal(self)
+    }
+
+    /// Tries to compute the minimum spanning tree (MST) of the TSP instance using Prim's algorithm starting from a specified node.
+    ///
+    /// # Arguments
+    /// * `start_node` - The ID of the starting node for Prim's algorithm (1-based index).
+    ///
+    /// # Returns
+    /// * `Result<Graph, ConversionError>` - Graph struct containing the edges in the MST,
+    ///   or an error if the adjacency matrix is empty or the start node is invalid.
+    pub fn try_get_mst_prim(&self, start_node: usize) -> Result<Graph, MstComputationError> {
+        try_get_mst_prim(self, start_node)
+    }
+
+    /// Tries to compute the minimum spanning tree (MST) of the TSP instance using Borůvka's algorithm.
+    ///
+    /// # Returns
+    /// * `Result<Graph, ConversionError>` - Graph struct containing the edges in the MST, or an error if the MST cannot be computed.
+    pub fn try_get_mst_boruvka(&self) -> Result<Graph, MstComputationError> {
+        try_get_mst_boruvka(self)
     }
 }
 

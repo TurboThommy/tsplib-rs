@@ -68,3 +68,25 @@ pub enum ConversionError {
     #[error("The execution was cancelled before the algorithm could complete.")]
     Cancelled,
 }
+
+#[derive(Error, Debug)]
+pub enum MstComputationError {
+    #[error("Adjacency matrix is empty, cannot compute MST.")]
+    EmptyAdjacencyMatrix,
+
+    #[error("Prim's algorithm failed: {0}")]
+    PrimMstError(String),
+
+    #[error("Borůvka's algorithm failed: {0}")]
+    BoruvkaMstError(String),
+}
+
+#[derive(Error, Debug)]
+pub enum GraphError {
+    #[error("Eulerian circuit cannot be found because the graph contains odd degree vertices.")]
+    EulerianCircuitOddDegreeError,
+    #[error("Eulerian circuit cannot be found because the graph is disconnected.")]
+    EulerianCircuitDisconnectedGraphError,
+    #[error("Eulerian circuit cannot be found because the graph is empty.")]
+    EulerianCircuitEmptyGraphError,
+}

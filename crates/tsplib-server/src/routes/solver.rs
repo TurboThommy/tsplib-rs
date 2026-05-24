@@ -5,7 +5,7 @@ use tsplib_core::{
     context::ExecutionContext, enums::AlgorithmType, models::TspSolution, reader::try_read_tsp_file,
 };
 use tsplib_parser::try_parse;
-use tsplib_solver::{Greedy, HeldKarp, TspSolver};
+use tsplib_solver::{Christofides, Greedy, HeldKarp, TspSolver};
 
 use crate::{
     errors::ServerError,
@@ -53,6 +53,7 @@ fn run_solver(
     let solver: Box<dyn TspSolver> = match algorithm {
         AlgorithmType::Greedy => Box::new(Greedy::new()),
         AlgorithmType::HeldKarp => Box::new(HeldKarp::try_new(25)?),
+        AlgorithmType::Christofides => Box::new(Christofides::new()),
     };
 
     Ok(solver.try_solve_with_context(&problem, start_node.unwrap_or(1), ctx)?)
