@@ -18,6 +18,9 @@ extern "C" int blossom_v_solve(
     // Create a PerfectMatching instance
     PerfectMatching pm(node_count, edge_count);
 
+    // Disable verbose output
+    pm.options.verbose = false;
+
     // Add edges to the PerfectMatching instance
     for (int i = 0; i < edge_count; ++i)
     {
