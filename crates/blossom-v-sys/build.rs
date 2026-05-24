@@ -44,6 +44,11 @@ fn main() {
     // compile the C++ bridge and the Blossom V source files into a static library
     cc::Build::new()
         .cpp(true)
+        .flag_if_supported("-Wno-unused-parameter")
+        .flag_if_supported("-Wno-unused-variable")
+        .flag_if_supported("-Wno-reorder")
+        .flag_if_supported("-Wno-use-after-free")
+        .flag_if_supported("-Wno-unused-but-set-variable")
         .file("cpp/blossom_bridge.cpp")
         .file(blossom_v_path.join("PMduals.cpp"))
         .file(blossom_v_path.join("PMexpand.cpp"))
