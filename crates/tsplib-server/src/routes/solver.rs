@@ -1,11 +1,11 @@
 //! Handlers for the REST API routes related to running the solvers.
 use axum::{Json, Router, extract::State, routing::post};
 use tokio_util::sync::CancellationToken;
-use tsplib_core::{
-    context::ExecutionContext, enums::AlgorithmType, models::TspSolution, reader::try_read_tsp_file,
-};
+use tsplib_core::{context::ExecutionContext, models::TspSolution, reader::try_read_tsp_file};
 use tsplib_parser::try_parse;
-use tsplib_solver::{Christofides, Greedy, HeldKarp, TspSolver};
+use tsplib_solver::{
+    Christofides, Greedy, HeldKarp, SolverOptions, TspSolver, enums::SolverAlgorithm,
+};
 
 use crate::{
     errors::ServerError,
@@ -29,10 +29,11 @@ pub fn router() -> Router<AppState> {
 /// # Returns
 /// * `Result<TspSolution, ServerError>` - The solution to the TSP problem or an error if something goes wrong.
 fn run_solver(
-    algorithm: AlgorithmType,
+    algorithm: SolverAlgorithm,
     problem_id: String,
     start_node: Option<usize>,
     token: CancellationToken,
+    options: SolverOptions,
 ) -> Result<TspSolution, ServerError> {
     // create a cancellation function that checks if the token has been cancelled
     let cancellation = || token.is_cancelled();
@@ -51,12 +52,12 @@ fn run_solver(
     }
 
     let solver: Box<dyn TspSolver> = match algorithm {
-        AlgorithmType::Greedy => Box::new(Greedy::new()),
-        AlgorithmType::HeldKarp => Box::new(HeldKarp::try_new(25)?),
-        AlgorithmType::Christofides => Box::new(Christofides::new()),
+        SolverAlgorithm::Greedy => Box::new(Greedy::new()),
+        SolverAlgorithm::HeldKarp => Box::new(HeldKarp::try_new(25)?),
+        SolverAlgorithm::Christofides => Box::new(Christofides::new()),
     };
 
-    Ok(solver.try_solve_with_context(&problem, start_node.unwrap_or(1), ctx)?)
+    Ok(solver.try_solve_with_context(&problem, start_node.unwrap_or(1), ctx, options)?)
 }
 
 /// Starts the TSP solver for a given problem instance and algorithm.
@@ -92,6 +93,7 @@ async fn start_solver(
             request.problem_id,
             request.start_node,
             task_token,
+            SolverOptions::default(),
         )
     });
 

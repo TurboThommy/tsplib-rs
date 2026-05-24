@@ -2,7 +2,10 @@ use std::collections::HashSet;
 
 use tsplib_core::models::{TspSolution, TsplibInstance};
 
-use crate::{PerfectMatchingAlgorithm, TspSolver, errors::SolverError, matcher::GreedyMatching};
+use crate::{
+    PerfectMatchingAlgorithm, SolverOptions, TspSolver, errors::SolverError,
+    matcher::GreedyMatching,
+};
 
 pub struct Christofides {}
 
@@ -24,6 +27,7 @@ impl TspSolver for Christofides {
         problem: &TsplibInstance,
         start_node: usize,
         ctx: tsplib_core::context::ExecutionContext,
+        _: SolverOptions,
     ) -> Result<tsplib_core::models::TspSolution, crate::errors::SolverError> {
         // currently the christofides implementation does not support fixed edges
         if problem.fixed_edges.is_some() {

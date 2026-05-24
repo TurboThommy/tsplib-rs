@@ -8,7 +8,7 @@ use tsplib_core::{
     models::{TspSolution, TsplibInstance},
 };
 
-use crate::{TspSolver, errors::SolverError};
+use crate::{SolverOptions, TspSolver, errors::SolverError};
 
 /// The Greedy algorithm is a simple heuristic for solving the TSP problem.
 /// It constructs a tour by always visiting the nearest unvisited node next.
@@ -44,6 +44,7 @@ impl TspSolver for Greedy {
         problem: &TsplibInstance,
         start_node: usize,
         ctx: ExecutionContext,
+        _: SolverOptions,
     ) -> Result<TspSolution, SolverError> {
         // check if the problem instance and start node are valid
         // and get the fixed edge map and targets for quick lookup

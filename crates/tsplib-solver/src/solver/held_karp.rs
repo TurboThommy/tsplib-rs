@@ -7,7 +7,7 @@ use tsplib_core::{
     models::{TspSolution, TsplibInstance},
 };
 
-use crate::{TspSolver, errors::SolverError};
+use crate::{SolverOptions, TspSolver, errors::SolverError};
 
 /// The Held-Karp algorithm is a dynamic programming approach to solve the TSP problem.
 pub struct HeldKarp {
@@ -262,6 +262,7 @@ impl TspSolver for HeldKarp {
         problem: &TsplibInstance,
         start_node: usize,
         ctx: ExecutionContext,
+        _: SolverOptions,
     ) -> Result<TspSolution, SolverError> {
         // number of nodes in the problem
         let n = problem.nodes.len();

@@ -4,7 +4,7 @@ use strum::EnumIter;
 
 #[derive(Debug, Serialize, Deserialize, EnumIter)]
 #[serde(rename_all = "snake_case")]
-pub enum AlgorithmType {
+pub enum SolverAlgorithm {
     HeldKarp,
     Greedy,
     Christofides,

@@ -1,13 +1,12 @@
 //! This crate provides a trait for solving the Traveling Salesman Problem (TSP) using various algorithms.
+pub mod enums;
 pub mod errors;
-pub mod matcher;
-pub mod solver;
+mod matcher;
+mod solver;
 
 use std::collections::{HashMap, HashSet};
 
-pub use solver::Christofides;
-pub use solver::Greedy;
-pub use solver::HeldKarp;
+pub use solver::{Christofides, Greedy, HeldKarp, SolverOptions};
 
 use errors::{MatcherError, SolverError};
 use tsplib_core::{
@@ -54,6 +53,7 @@ pub trait TspSolver {
         problem: &TsplibInstance,
         start_node: usize,
         ctx: ExecutionContext,
+        options: SolverOptions,
     ) -> Result<TspSolution, SolverError>;
 
     /// Solves the TSP problem for the given problem instance and starting node.
@@ -73,7 +73,12 @@ pub trait TspSolver {
         problem: &TsplibInstance,
         start_node: usize,
     ) -> Result<TspSolution, SolverError> {
-        self.try_solve_with_context(problem, start_node, ExecutionContext::default())
+        self.try_solve_with_context(
+            problem,
+            start_node,
+            ExecutionContext::default(),
+            SolverOptions::default(),
+        )
     }
 
     /// Checks the validity of the problem instance and the starting node for the TSP solver.
