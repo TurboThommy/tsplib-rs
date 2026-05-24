@@ -1,7 +1,7 @@
 //! Handlers for the REST API routes related to solver algorithms.
 use axum::{Json, Router, routing::get};
 use strum::IntoEnumIterator;
-use tsplib_core::enums::AlgorithmType;
+use tsplib_solver::enums::SolverAlgorithm;
 
 use crate::state::AppState;
 
@@ -11,6 +11,6 @@ pub fn router() -> Router<AppState> {
 }
 
 /// Get the list of available algorithms.
-async fn get_algorithms() -> Json<Vec<AlgorithmType>> {
-    Json(AlgorithmType::iter().collect())
+async fn get_algorithms() -> Json<Vec<SolverAlgorithm>> {
+    Json(SolverAlgorithm::iter().collect())
 }

@@ -14,3 +14,7 @@ thiserror = { workspace = true }
 tokio = { workspace = true }
 tokio-util = { workspace = true }
 strum = { workspace = true }
+
+[features]
+default = []
+blossom-v = ["tsplib-solver/blossom-v"]

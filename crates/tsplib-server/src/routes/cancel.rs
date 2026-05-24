@@ -1,3 +1,4 @@
+//! This module defines the route and handler for cancelling the currently running processing task in the TSP solver server.
 use axum::{Router, extract::State, http::StatusCode, routing::post};
 
 use crate::state::{AppState, ProcessingState};

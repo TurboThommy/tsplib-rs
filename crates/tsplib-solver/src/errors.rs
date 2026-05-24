@@ -10,6 +10,7 @@ use tsplib_core::enums::{
     MstComputationError,
 };
 
+/// Errors that can occur during TSP solving.
 #[derive(Error, Debug)]
 pub enum SolverError {
     #[error("Invalid start node provided.")]
@@ -46,6 +47,7 @@ pub enum SolverError {
     EulerianCircuitError(String),
 }
 
+/// Errors that can occur during the perfect matching step of the Christofides algorithm.
 #[derive(Error, Debug)]
 pub enum MatcherError {
     #[error("Odd vertex count should be even. Found {0} odd vertices.")]

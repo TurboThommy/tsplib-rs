@@ -36,13 +36,16 @@ async fn get_problems() -> Result<Json<Vec<ProblemDescriptionResponse>>, ServerE
     let problems = try_read_tsp_files("./data")?
         .iter()
         .map(|(problem_id, problem_data)| {
+            // create a new specification part to hold the parsed metadata
             let mut specification = SpecificationPart::new();
 
+            // extract lines containing metadata (lines with a colon)
             let metadata_lines = problem_data
                 .lines()
                 .filter(|line| line.contains(':'))
                 .collect::<Vec<_>>();
 
+            // parse metadata lines and populate the specification
             for line in metadata_lines {
                 let parts = line.split(':').map(|s| s.trim()).collect::<Vec<_>>();
                 if parts.len() != 2 {
@@ -51,23 +54,10 @@ async fn get_problems() -> Result<Json<Vec<ProblemDescriptionResponse>>, ServerE
                 try_parse_header_line(parts[0], parts[1], &mut specification)?;
             }
 
+            // convert the specification to a problem description response
             ProblemDescriptionResponse::try_from_specification(problem_id.clone(), &specification)
         })
         .collect::<Result<Vec<_>, ServerError>>()?;
-
-    // let problems = fs::read_dir("./data")?
-    //     .filter_map(|entry| {
-    //         let entry = entry.ok()?;
-    //         let path = entry.path();
-    //         if !path.is_file() {
-    //             return None;
-    //         }
-    //         if path.extension()? != "tsp" {
-    //             return None;
-    //         }
-    //         Some(path.file_stem()?.to_string_lossy().to_string())
-    //     })
-    //     .collect::<Vec<_>>();
 
     Ok(Json(problems))
 }

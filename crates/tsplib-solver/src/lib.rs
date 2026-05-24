@@ -1,24 +1,20 @@
 //! This crate provides a trait for solving the Traveling Salesman Problem (TSP) using various algorithms.
+pub mod enums;
 pub mod errors;
-pub mod matcher;
-pub mod solver;
+mod matcher;
+mod solver;
 
-use std::collections::{HashMap, HashSet};
-
-pub use solver::Christofides;
-pub use solver::Greedy;
-pub use solver::HeldKarp;
+pub use solver::{Christofides, Greedy, HeldKarp, SolverOptions};
 
 use errors::{MatcherError, SolverError};
+use std::collections::{HashMap, HashSet};
 use tsplib_core::{
     context::ExecutionContext,
     models::{Edge, TspSolution, TsplibInstance},
 };
 
+/// This trait defines the interface for a perfect matching algorithm that can be used in the context of solving the TSP.
 pub trait PerfectMatchingAlgorithm {
-    /// Creates a new instance of the perfect matching algorithm.
-    fn new() -> Self;
-
     /// Computes a perfect matching on the given set of odd vertices for the TSP instance.
     ///
     /// # Arguments
@@ -35,6 +31,7 @@ pub trait PerfectMatchingAlgorithm {
     ) -> Result<Vec<Edge>, MatcherError>;
 }
 
+/// This trait defines the interface for a TSP solver that can solve the TSP problem for a given problem instance and starting node.
 pub trait TspSolver {
     /// Solves the TSP problem for the given problem instance and starting node, using the provided execution context.
     /// The implementation of this method should return a `TspSolution` containing a tour and its total cost,
@@ -44,6 +41,7 @@ pub trait TspSolver {
     /// * `problem` - A reference to the `ProblemInstance` representing the TSP problem to be solved.
     /// * `start_node` - The ID of the node from which the tour should start.
     /// * `ctx` - An `ExecutionContext` providing additional information and resources for the solver (e.g., time limits, logging, etc.).
+    /// * `options` - A `SolverOptions` struct containing optional configuration parameters for the solver (e.g., which MST and matching algorithms to use in Christofides).
     ///
     /// # Returns
     /// * `Result<TspSolution, SolverError>` - On success, returns a `TspSolution` containing the optimal tour and its total cost.
@@ -54,6 +52,7 @@ pub trait TspSolver {
         problem: &TsplibInstance,
         start_node: usize,
         ctx: ExecutionContext,
+        options: SolverOptions,
     ) -> Result<TspSolution, SolverError>;
 
     /// Solves the TSP problem for the given problem instance and starting node.
@@ -73,7 +72,12 @@ pub trait TspSolver {
         problem: &TsplibInstance,
         start_node: usize,
     ) -> Result<TspSolution, SolverError> {
-        self.try_solve_with_context(problem, start_node, ExecutionContext::default())
+        self.try_solve_with_context(
+            problem,
+            start_node,
+            ExecutionContext::default(),
+            SolverOptions::default(),
+        )
     }
 
     /// Checks the validity of the problem instance and the starting node for the TSP solver.

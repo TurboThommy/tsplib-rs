@@ -1,11 +1,11 @@
 //! Handlers for the REST API routes related to running the solvers.
 use axum::{Json, Router, extract::State, routing::post};
 use tokio_util::sync::CancellationToken;
-use tsplib_core::{
-    context::ExecutionContext, enums::AlgorithmType, models::TspSolution, reader::try_read_tsp_file,
-};
+use tsplib_core::{context::ExecutionContext, models::TspSolution, reader::try_read_tsp_file};
 use tsplib_parser::try_parse;
-use tsplib_solver::{Christofides, Greedy, HeldKarp, TspSolver};
+use tsplib_solver::{
+    Christofides, Greedy, HeldKarp, SolverOptions, TspSolver, enums::SolverAlgorithm,
+};
 
 use crate::{
     errors::ServerError,
@@ -25,14 +25,17 @@ pub fn router() -> Router<AppState> {
 /// * `algorithm` - The algorithm to use for solving the TSP problem.
 /// * `problem_id` - The ID of the problem instance to solve.
 /// * `start_node` - Optional starting node for the TSP tour.
+/// * `token` - A cancellation token to allow for cancelling the solver task.
+/// * `options` - Additional options for the solver.
 ///
 /// # Returns
 /// * `Result<TspSolution, ServerError>` - The solution to the TSP problem or an error if something goes wrong.
 fn run_solver(
-    algorithm: AlgorithmType,
+    algorithm: SolverAlgorithm,
     problem_id: String,
     start_node: Option<usize>,
     token: CancellationToken,
+    options: SolverOptions,
 ) -> Result<TspSolution, ServerError> {
     // create a cancellation function that checks if the token has been cancelled
     let cancellation = || token.is_cancelled();
@@ -51,12 +54,12 @@ fn run_solver(
     }
 
     let solver: Box<dyn TspSolver> = match algorithm {
-        AlgorithmType::Greedy => Box::new(Greedy::new()),
-        AlgorithmType::HeldKarp => Box::new(HeldKarp::try_new(25)?),
-        AlgorithmType::Christofides => Box::new(Christofides::new()),
+        SolverAlgorithm::Greedy => Box::new(Greedy::new()),
+        SolverAlgorithm::HeldKarp => Box::new(HeldKarp::try_new(25)?),
+        SolverAlgorithm::Christofides => Box::new(Christofides::new()),
     };
 
-    Ok(solver.try_solve_with_context(&problem, start_node.unwrap_or(1), ctx)?)
+    Ok(solver.try_solve_with_context(&problem, start_node.unwrap_or(1), ctx, options)?)
 }
 
 /// Starts the TSP solver for a given problem instance and algorithm.
@@ -80,6 +83,9 @@ async fn start_solver(
         return Err(ServerError::ProcessingAlreadyRunning);
     }
 
+    // get solver options from the request or use default if not provided
+    let solver_options = request.solver_options.unwrap_or_default();
+
     // create a cancellation token for the new solver task
     let token = CancellationToken::new();
     // create a second handle for the cancellation token to pass to the solver task
@@ -92,6 +98,7 @@ async fn start_solver(
             request.problem_id,
             request.start_node,
             task_token,
+            solver_options,
         )
     });
 

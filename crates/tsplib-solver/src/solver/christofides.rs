@@ -1,8 +1,14 @@
+//! This module implements the Christofides algorithm for solving the Traveling Salesman Problem (TSP).
+
+use crate::matcher::BlossomVMatching;
+use crate::{
+    PerfectMatchingAlgorithm, SolverOptions, TspSolver,
+    enums::{MatcherAlgorithm, MstAlgorithm},
+    errors::SolverError,
+    matcher::GreedyMatching,
+};
 use std::collections::HashSet;
-
 use tsplib_core::models::{TspSolution, TsplibInstance};
-
-use crate::{PerfectMatchingAlgorithm, TspSolver, errors::SolverError, matcher::GreedyMatching};
 
 pub struct Christofides {}
 
@@ -19,12 +25,32 @@ impl Default for Christofides {
 }
 
 impl TspSolver for Christofides {
+    /// Solves the TSP instance using the Christofides algorithm, which consists of the following steps:
+    /// 1. Compute a minimum spanning tree (MST) of the graph.
+    /// 2. Find the vertices with odd degree in the MST.
+    /// 3. Compute a minimum weight perfect matching on the odd degree vertices.
+    /// 4. Combine the edges of the MST and the perfect matching to create a multigraph.
+    /// 5. Find an Eulerian tour in the multigraph.
+    /// 6. Shortcut the Eulerian tour to create a TSP tour by skipping already visited nodes while traversing the circuit.
+    /// 7. Rotate the tour so that it starts with the specified start node.
+    /// 8. Compute the total cost of the tour.
+    ///
+    /// # Arguments
+    /// * `problem` - The TSP instance to solve.
+    /// * `start_node` - The node ID that the tour should start with.
+    /// * `ctx` - The execution context for handling cancellation.
+    /// * `options` - The solver options that may specify which algorithms to use for MST and perfect matching computations.
+    ///
+    /// # Returns
+    /// * `Result<TspSolution, SolverError>` - The computed TSP solution, or an error if the problem is invalid, if fixed edges are present,
+    ///   if the start node is invalid, if any of the algorithmic steps fail, or if the computation is cancelled.
     fn try_solve_with_context(
         &self,
         problem: &TsplibInstance,
         start_node: usize,
         ctx: tsplib_core::context::ExecutionContext,
-    ) -> Result<tsplib_core::models::TspSolution, crate::errors::SolverError> {
+        options: SolverOptions,
+    ) -> Result<TspSolution, crate::errors::SolverError> {
         // currently the christofides implementation does not support fixed edges
         if problem.fixed_edges.is_some() {
             return Err(SolverError::FixedEdgesNotSupported);
@@ -39,8 +65,12 @@ impl TspSolver for Christofides {
         }
 
         // get the minimum spanning tree
-        // TODO: make the mst algorithm configurable (e.g. via ctx)
-        let mst = problem.try_get_mst_kruskal()?;
+        let mst_algorithm = options.mst_algorithm.unwrap_or_default();
+        let mst = match mst_algorithm {
+            MstAlgorithm::Kruskal => problem.try_get_mst_kruskal()?,
+            MstAlgorithm::Prim => problem.try_get_mst_prim(start_node)?,
+            MstAlgorithm::Boruvka => problem.try_get_mst_boruvka()?,
+        };
 
         // check for cancellation after MST computation again
         if ctx.is_cancelled() {
@@ -56,8 +86,12 @@ impl TspSolver for Christofides {
             .collect::<Vec<_>>();
 
         // compute a perfect matching on the odd degree vertices
-        // TODO: make the perfect matching algorithm configurable (e.g. via ctx)
-        let matcher = GreedyMatching::new();
+        let matcher_algorithm = options.matcher_algorithm.unwrap_or_default();
+        let matcher: Box<dyn PerfectMatchingAlgorithm> = match matcher_algorithm {
+            MatcherAlgorithm::Greedy => Box::new(GreedyMatching::new()),
+            MatcherAlgorithm::BlossomV => Box::new(BlossomVMatching::new()),
+        };
+
         let matching = matcher.try_compute(&odd_vertices, problem)?;
 
         // check for cancellation after perfect matching computation
