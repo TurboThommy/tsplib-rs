@@ -1,5 +1,7 @@
 [workspace]
-members = ["crates/blossom-v","crates/blossom-v-sys",
+members = [
+    "crates/blossom-v",
+    "crates/blossom-v-sys",
     "crates/tsplib-core",
     "crates/tsplib-dev-runner",
     "crates/tsplib-parser",
@@ -19,3 +21,4 @@ tokio-util = "0.7.18"
 tsplib-core = { path = "crates/tsplib-core" }
 tsplib-parser = { path = "crates/tsplib-parser" }
 tsplib-solver = { path = "crates/tsplib-solver" }
+blossom-v = { path = "crates/blossom-v" }
