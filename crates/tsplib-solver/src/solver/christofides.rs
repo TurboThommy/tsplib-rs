@@ -2,8 +2,11 @@ use std::collections::HashSet;
 
 use tsplib_core::models::{TspSolution, TsplibInstance};
 
+use crate::matcher::BlossomVMatching;
 use crate::{
-    PerfectMatchingAlgorithm, SolverOptions, TspSolver, errors::SolverError,
+    PerfectMatchingAlgorithm, SolverOptions, TspSolver,
+    enums::{MatcherAlgorithm, MstAlgorithm},
+    errors::SolverError,
     matcher::GreedyMatching,
 };
 
@@ -27,8 +30,8 @@ impl TspSolver for Christofides {
         problem: &TsplibInstance,
         start_node: usize,
         ctx: tsplib_core::context::ExecutionContext,
-        _: SolverOptions,
-    ) -> Result<tsplib_core::models::TspSolution, crate::errors::SolverError> {
+        options: SolverOptions,
+    ) -> Result<TspSolution, crate::errors::SolverError> {
         // currently the christofides implementation does not support fixed edges
         if problem.fixed_edges.is_some() {
             return Err(SolverError::FixedEdgesNotSupported);
@@ -43,8 +46,12 @@ impl TspSolver for Christofides {
         }
 
         // get the minimum spanning tree
-        // TODO: make the mst algorithm configurable (e.g. via ctx)
-        let mst = problem.try_get_mst_kruskal()?;
+        let mst_algorithm = options.mst_algorithm.unwrap_or_default();
+        let mst = match mst_algorithm {
+            MstAlgorithm::Kruskal => problem.try_get_mst_kruskal()?,
+            MstAlgorithm::Prim => problem.try_get_mst_prim(start_node)?,
+            MstAlgorithm::Boruvka => problem.try_get_mst_boruvka()?,
+        };
 
         // check for cancellation after MST computation again
         if ctx.is_cancelled() {
@@ -60,8 +67,12 @@ impl TspSolver for Christofides {
             .collect::<Vec<_>>();
 
         // compute a perfect matching on the odd degree vertices
-        // TODO: make the perfect matching algorithm configurable (e.g. via ctx)
-        let matcher = GreedyMatching::new();
+        let matcher_algorithm = options.matcher_algorithm.unwrap_or_default();
+        let matcher: Box<dyn PerfectMatchingAlgorithm> = match matcher_algorithm {
+            MatcherAlgorithm::Greedy => Box::new(GreedyMatching::new()),
+            MatcherAlgorithm::BlossomV => Box::new(BlossomVMatching::new()),
+        };
+
         let matching = matcher.try_compute(&odd_vertices, problem)?;
 
         // check for cancellation after perfect matching computation

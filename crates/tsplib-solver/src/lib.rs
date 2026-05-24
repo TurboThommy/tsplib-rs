@@ -15,9 +15,6 @@ use tsplib_core::{
 };
 
 pub trait PerfectMatchingAlgorithm {
-    /// Creates a new instance of the perfect matching algorithm.
-    fn new() -> Self;
-
     /// Computes a perfect matching on the given set of odd vertices for the TSP instance.
     ///
     /// # Arguments
@@ -43,6 +40,7 @@ pub trait TspSolver {
     /// * `problem` - A reference to the `ProblemInstance` representing the TSP problem to be solved.
     /// * `start_node` - The ID of the node from which the tour should start.
     /// * `ctx` - An `ExecutionContext` providing additional information and resources for the solver (e.g., time limits, logging, etc.).
+    /// * `options` - A `SolverOptions` struct containing optional configuration parameters for the solver (e.g., which MST and matching algorithms to use in Christofides).
     ///
     /// # Returns
     /// * `Result<TspSolution, SolverError>` - On success, returns a `TspSolution` containing the optimal tour and its total cost.

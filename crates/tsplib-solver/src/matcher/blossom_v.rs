@@ -5,11 +5,13 @@ use tsplib_core::models::{Edge, TsplibInstance};
 
 pub struct BlossomVMatching {}
 
-impl PerfectMatchingAlgorithm for BlossomVMatching {
-    fn new() -> Self {
+impl BlossomVMatching {
+    pub fn new() -> Self {
         Self {}
     }
+}
 
+impl PerfectMatchingAlgorithm for BlossomVMatching {
     fn try_compute(
         &self,
         odd_vertices: &[usize],

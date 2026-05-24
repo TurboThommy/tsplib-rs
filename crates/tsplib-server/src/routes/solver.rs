@@ -81,6 +81,9 @@ async fn start_solver(
         return Err(ServerError::ProcessingAlreadyRunning);
     }
 
+    // get solver options from the request or use default if not provided
+    let solver_options = request.solver_options.unwrap_or_default();
+
     // create a cancellation token for the new solver task
     let token = CancellationToken::new();
     // create a second handle for the cancellation token to pass to the solver task
@@ -93,7 +96,7 @@ async fn start_solver(
             request.problem_id,
             request.start_node,
             task_token,
-            SolverOptions::default(),
+            solver_options,
         )
     });
 

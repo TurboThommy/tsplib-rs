@@ -1,8 +1,10 @@
 //! This module provides a struct for configuring solver options.
 
+use serde::Deserialize;
+
 use crate::enums::{MatcherAlgorithm, MstAlgorithm};
 
-#[derive(Default)]
+#[derive(Default, Deserialize)]
 pub struct SolverOptions {
     /// Optional MST algorithm to use in the Christofides algorithm.
     pub mst_algorithm: Option<MstAlgorithm>,

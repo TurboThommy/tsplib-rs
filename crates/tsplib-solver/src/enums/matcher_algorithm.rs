@@ -5,7 +5,9 @@ use strum::EnumIter;
 
 #[derive(Debug, Serialize, Deserialize, EnumIter)]
 #[serde(rename_all = "snake_case")]
+#[derive(Default)]
 pub enum MatcherAlgorithm {
+    #[default]
     Greedy,
     BlossomV,
 }

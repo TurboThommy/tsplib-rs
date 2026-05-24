@@ -6,11 +6,13 @@ use crate::{PerfectMatchingAlgorithm, errors::MatcherError};
 
 pub struct GreedyMatching {}
 
-impl PerfectMatchingAlgorithm for GreedyMatching {
-    fn new() -> Self {
-        GreedyMatching {}
+impl GreedyMatching {
+    pub fn new() -> Self {
+        Self {}
     }
+}
 
+impl PerfectMatchingAlgorithm for GreedyMatching {
     fn try_compute(
         &self,
         odd_vertices: &[usize],

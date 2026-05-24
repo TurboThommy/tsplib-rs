@@ -4,11 +4,13 @@ use crate::{PerfectMatchingAlgorithm, errors::MatcherError};
 
 pub struct BlossomVMatching {}
 
-impl PerfectMatchingAlgorithm for BlossomVMatching {
-    fn new() -> Self {
+impl BlossomVMatching {
+    pub fn new() -> Self {
         Self {}
     }
+}
 
+impl PerfectMatchingAlgorithm for BlossomVMatching {
     fn try_compute(&self, _: &[usize], _: &TsplibInstance) -> Result<Vec<Edge>, MatcherError> {
         Err(MatcherError::BlossomVNotAvailable)
     }

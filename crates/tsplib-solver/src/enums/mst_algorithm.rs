@@ -4,8 +4,10 @@
 use serde::{Deserialize, Serialize};
 use strum::EnumIter;
 
-#[derive(Debug, Serialize, Deserialize, EnumIter)]
+#[derive(Default, Debug, Serialize, Deserialize, EnumIter)]
+#[serde(rename_all = "snake_case")]
 pub enum MstAlgorithm {
+    #[default]
     Kruskal,
     Prim,
     Boruvka,
