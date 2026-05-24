@@ -1,7 +1,7 @@
 use blossom_v::try_solve_min_weight_perfect_matching;
-use tsplib_core::models::{Edge, TsplibInstance};
 
 use crate::{PerfectMatchingAlgorithm, errors::MatcherError};
+use tsplib_core::models::{Edge, TsplibInstance};
 
 pub struct BlossomVMatching {}
 

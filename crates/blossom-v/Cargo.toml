@@ -5,4 +5,4 @@ edition = "2024"
 
 [dependencies]
 blossom-v-sys = { path = "../blossom-v-sys" }
-thiserror = { workspace = true }
+thiserror = "2.0.18"

@@ -1,6 +1,8 @@
 //! This module defines the SolverError enum, which represents errors that can occur during TSP solving.
 
+#[cfg(feature = "blossom-v")]
 use blossom_v::BlossomVError;
+
 use thiserror::Error;
 use tsplib_core::enums::{
     GraphError,
@@ -90,6 +92,7 @@ impl From<GraphError> for SolverError {
     }
 }
 
+#[cfg(feature = "blossom-v")]
 impl From<BlossomVError> for MatcherError {
     fn from(value: BlossomVError) -> Self {
         MatcherError::BlossomVError(value.to_string())
