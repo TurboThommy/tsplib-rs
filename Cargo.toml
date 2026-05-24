@@ -21,3 +21,6 @@ tsplib-core = { path = "crates/tsplib-core" }
 tsplib-parser = { path = "crates/tsplib-parser" }
 tsplib-solver = { path = "crates/tsplib-solver" }
 blossom-v = { path = "crates/blossom-v" }
+tracing = "0.1.44"
+tracing-subscriber = { version = "0.3.23", features = ["env-filter"] }
+tower-http = { version = "=0.6.11", features = ["trace"] }
