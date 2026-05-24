@@ -1,13 +1,21 @@
+//! This crate provides FFI bindings to the Blossom V library for solving the minimum weight perfect matching problem.
+
 use std::{env, path::PathBuf};
 
+/// Build script for the blossom-v-sys crate, which compiles the C++ bridge and the Blossom V source files into a static library.
+///
+/// # Requirements
+/// * The `BLOSSOM_V_PATH` environment variable must be set to the path of the Blossom V library source code,
+///   which can be obtained from https://pub.ist.ac.at/~vnk/software/blossom5-v2.05.src.tar.gz.
 fn main() {
+    // get the path to the blossom v library from the environment variable
     let blossom_v_path = PathBuf::from(env::var("BLOSSOM_V_PATH").expect(
         "BLOSSOM_V_PATH environment variable must be set to the path of the blossom v library",
     ));
 
+    // tell cargo to rerun this build script if the environment variable changes or if any of the relevant source files change
     println!("cargo:rerun-if-env-changed=BLOSSOM_V_PATH");
     println!("cargo:rerun-if-changed=cpp/blossom_bridge.cpp");
-
     for file in [
         "PerfectMatching.h",
         "PMimplementation.h",
@@ -33,6 +41,7 @@ fn main() {
         );
     }
 
+    // compile the C++ bridge and the Blossom V source files into a static library
     cc::Build::new()
         .cpp(true)
         .file("cpp/blossom_bridge.cpp")

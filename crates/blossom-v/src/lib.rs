@@ -1,7 +1,19 @@
+//! A Rust wrapper around the Blossom V algorithm for solving the minimum weight perfect matching problem in general graphs.
+
 mod errors;
 
 pub use errors::BlossomVError;
 
+/// Solves the minimum weight perfect matching problem using the Blossom V algorithm.
+///
+/// # Arguments
+/// * `node_count` - The number of nodes in the graph. Must be even and greater than zero.
+/// * `edges` - A slice of tuples representing the edges in the graph. Each tuple should contain the source node index,
+///   target node index, and edge weight. Node indices must be in the range [0, node_count - 1].
+///
+/// # Returns
+/// * `Result<Vec<(usize, usize)>, BlossomVError>` - On success, returns a vector of tuples representing the matched pairs of nodes.
+///   On failure, returns a `BlossomVError` indicating the reason for the failure.
 pub fn try_solve_min_weight_perfect_matching(
     node_count: usize,
     edges: &[(usize, usize, i32)],

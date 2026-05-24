@@ -1,3 +1,5 @@
+//! Errors for the blossom-v crate
+
 use thiserror::Error;
 
 #[derive(Error, Debug)]
