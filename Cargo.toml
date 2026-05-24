@@ -1,5 +1,5 @@
 [workspace]
-members = [
+members = ["crates/blossom-v","crates/blossom-v-sys",
     "crates/tsplib-core",
     "crates/tsplib-dev-runner",
     "crates/tsplib-parser",
