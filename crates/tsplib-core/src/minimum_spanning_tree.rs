@@ -1,3 +1,7 @@
+//! This module provides functions to compute the minimum spanning tree (MST) of a TSP instance using different algorithms:
+//! Kruskal's, Prim's, and Borůvka's algorithms. Each function takes a `TsplibInstance` as input and returns a `Graph`
+//! containing the edges in the MST or an error if the MST cannot be computed.
+
 use itertools::Itertools;
 
 use crate::enums::MstComputationError;
@@ -6,7 +10,9 @@ use crate::models::{Edge, Graph, TsplibInstance};
 /// A union-find (disjoint set) data structure for Kruskal's algorithm.
 #[derive(Debug)]
 struct UnionFind {
+    /// The parent of each element in the union-find structure, where `parent[i]` is the parent of element `i + 1` (1-based indexing).
     parent: Vec<usize>,
+    /// The rank of each element in the union-find structure, used for union by rank optimization.
     rank: Vec<usize>,
 }
 
@@ -49,13 +55,16 @@ impl UnionFind {
     /// # Returns
     /// * `bool` - `true` if the sets were united, `false` if they were already in the same set.
     fn union(&mut self, u: usize, v: usize) -> bool {
+        // find the representatives (roots) of the sets containing `u` and `v`
         let root_u = self.find(u);
         let root_v = self.find(v);
 
+        // if both elements are in the same set, they cannot be united
         if root_u == root_v {
             return false;
         }
 
+        // union by rank: attach the smaller tree to the root of the larger tree
         let root_u_idx = root_u - 1;
         let root_v_idx = root_v - 1;
 
@@ -203,6 +212,7 @@ pub fn try_get_mst_prim(
 /// * `Result<Graph, ConversionError>` - Graph struct containing the edges in the MST,
 ///   or an error if the MST cannot be computed.
 pub fn try_get_mst_boruvka(tsplib_instance: &TsplibInstance) -> Result<Graph, MstComputationError> {
+    // helper function to update the cheapest edge for a given component
     fn update_cheapest(cheapest: &mut [Option<Edge>], root: usize, edge: Edge) {
         if cheapest[root].is_none_or(|current| edge.weight < current.weight) {
             cheapest[root] = Some(edge);

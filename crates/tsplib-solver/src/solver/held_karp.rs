@@ -1,13 +1,11 @@
 //! A module containing the implementation of the Held-Karp algorithm for solving the Traveling Salesman Problem (TSP).
 
+use crate::{SolverOptions, TspSolver, errors::SolverError};
 use std::collections::{HashMap, HashSet};
-
 use tsplib_core::{
     context::ExecutionContext,
     models::{TspSolution, TsplibInstance},
 };
-
-use crate::{SolverOptions, TspSolver, errors::SolverError};
 
 /// The Held-Karp algorithm is a dynamic programming approach to solve the TSP problem.
 pub struct HeldKarp {
@@ -202,6 +200,7 @@ impl HeldKarp {
     /// * `start_idx` - The index of the starting node (0-based).
     /// * `full_mask` - The bitmask representing the subset of all nodes visited (i.e., when all nodes are visited).
     /// * `last_node` - The index of the last node in the optimal tour (0-based).
+    /// * `ctx` - An `ExecutionContext` providing additional information and resources for the solver (e.g., time limits, logging, etc.).
     ///
     /// # Returns
     /// * `Result<Vec<usize>, SolverError>` - On success, returns a vector containing the sequence of node IDs in the optimal tour, starting and ending at the specified start node.
@@ -252,6 +251,7 @@ impl TspSolver for HeldKarp {
     /// * `problem` - A reference to the `ProblemInstance` representing the TSP problem to be solved.
     /// * `start_node` - The ID of the node from which the tour should start.
     /// * `ctx` - An `ExecutionContext` providing additional information and resources for the solver (e.g., time limits, logging, etc.).
+    /// * `SolverOptions` - Additional options for the solver (currently not used in this implementation, but can be extended in the future).
     ///
     /// # Returns
     /// * `Result<TspSolution, SolverError>` - On success, returns a `TspSolution` containing the optimal tour and its total cost.

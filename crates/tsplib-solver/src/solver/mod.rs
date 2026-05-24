@@ -1,3 +1,5 @@
+//! Solvers for the TSP.
+
 mod christofides;
 mod greedy;
 mod held_karp;

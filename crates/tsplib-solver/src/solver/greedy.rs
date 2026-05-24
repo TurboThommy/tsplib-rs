@@ -1,14 +1,12 @@
 //! A simple greedy TSP solver that constructs a tour by always visiting the nearest unvisited node next. It also respects fixed edges if they are present in the problem instance.
 
+use crate::{SolverOptions, TspSolver, errors::SolverError};
 use std::collections::HashSet;
-
 use tsplib_core::{
     context::ExecutionContext,
     enums::InstanceError,
     models::{TspSolution, TsplibInstance},
 };
-
-use crate::{SolverOptions, TspSolver, errors::SolverError};
 
 /// The Greedy algorithm is a simple heuristic for solving the TSP problem.
 /// It constructs a tour by always visiting the nearest unvisited node next.
@@ -35,6 +33,8 @@ impl TspSolver for Greedy {
     /// # Arguments
     /// * `problem` - A reference to the `ProblemInstance` representing the TSP problem to be solved.
     /// * `start_node` - The ID of the node from which the tour should start.
+    /// * `ctx` - An `ExecutionContext` that allows for cancellation of the solving process.
+    /// * `options` - A `SolverOptions` struct that can contain additional parameters for the solver (not used in this implementation).
     ///
     /// # Returns
     /// * `Result<TspSolution, SolverError>` - On success, returns a `TspSolution` containing the tour and its total cost.
@@ -88,6 +88,7 @@ impl TspSolver for Greedy {
                 .min_by_key(|(_, dist)| *dist)
                 .map(|(n, _)| n);
 
+            // if there is a next node, visit it; otherwise, return an error
             if let Some(next_node) = next_node {
                 visited.insert(next_node.id);
                 tour.push(next_node.id);

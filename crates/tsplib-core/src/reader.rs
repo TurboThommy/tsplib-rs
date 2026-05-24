@@ -24,6 +24,7 @@ pub fn try_read_tsp_files(path: &str) -> Result<Vec<(String, String)>, IoError> 
             None => false,
         })
         .map(|entry| {
+            // extract the problem ID from the filename (without extension)
             let problem_id = entry
                 .path()
                 .file_stem()
@@ -33,6 +34,7 @@ pub fn try_read_tsp_files(path: &str) -> Result<Vec<(String, String)>, IoError> 
                 .to_string_lossy()
                 .to_string();
 
+            // read the file content as a string
             let data = try_read_file(entry.path().to_str().ok_or(IoError::InvalidFilePath(
                 entry.path().to_string_lossy().to_string(),
             ))?)?;

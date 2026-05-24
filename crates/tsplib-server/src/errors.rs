@@ -6,6 +6,8 @@ use tsplib_core::enums::{ConversionError, IoError};
 use tsplib_parser::ParseError;
 use tsplib_solver::errors::SolverError;
 
+/// This module defines the `ServerError` enum, which represents the various errors that can occur during the operation of the TSPLIB server.
+/// Each variant of the enum corresponds to a specific type
 #[derive(Error, Debug)]
 pub enum ServerError {
     #[error("I/O error: {0}")]

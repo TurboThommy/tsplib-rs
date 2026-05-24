@@ -25,6 +25,8 @@ pub fn router() -> Router<AppState> {
 /// * `algorithm` - The algorithm to use for solving the TSP problem.
 /// * `problem_id` - The ID of the problem instance to solve.
 /// * `start_node` - Optional starting node for the TSP tour.
+/// * `token` - A cancellation token to allow for cancelling the solver task.
+/// * `options` - Additional options for the solver.
 ///
 /// # Returns
 /// * `Result<TspSolution, ServerError>` - The solution to the TSP problem or an error if something goes wrong.

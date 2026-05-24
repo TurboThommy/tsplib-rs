@@ -1,9 +1,9 @@
 //! This module provides a struct for configuring solver options.
 
+use crate::enums::{MatcherAlgorithm, MstAlgorithm};
 use serde::Deserialize;
 
-use crate::enums::{MatcherAlgorithm, MstAlgorithm};
-
+/// The `SolverOptions` struct holds optional configuration settings for the TSP solver.
 #[derive(Default, Deserialize)]
 pub struct SolverOptions {
     /// Optional MST algorithm to use in the Christofides algorithm.

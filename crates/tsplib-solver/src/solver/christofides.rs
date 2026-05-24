@@ -1,6 +1,4 @@
-use std::collections::HashSet;
-
-use tsplib_core::models::{TspSolution, TsplibInstance};
+//! This module implements the Christofides algorithm for solving the Traveling Salesman Problem (TSP).
 
 use crate::matcher::BlossomVMatching;
 use crate::{
@@ -9,6 +7,8 @@ use crate::{
     errors::SolverError,
     matcher::GreedyMatching,
 };
+use std::collections::HashSet;
+use tsplib_core::models::{TspSolution, TsplibInstance};
 
 pub struct Christofides {}
 
@@ -25,6 +25,25 @@ impl Default for Christofides {
 }
 
 impl TspSolver for Christofides {
+    /// Solves the TSP instance using the Christofides algorithm, which consists of the following steps:
+    /// 1. Compute a minimum spanning tree (MST) of the graph.
+    /// 2. Find the vertices with odd degree in the MST.
+    /// 3. Compute a minimum weight perfect matching on the odd degree vertices.
+    /// 4. Combine the edges of the MST and the perfect matching to create a multigraph.
+    /// 5. Find an Eulerian tour in the multigraph.
+    /// 6. Shortcut the Eulerian tour to create a TSP tour by skipping already visited nodes while traversing the circuit.
+    /// 7. Rotate the tour so that it starts with the specified start node.
+    /// 8. Compute the total cost of the tour.
+    ///
+    /// # Arguments
+    /// * `problem` - The TSP instance to solve.
+    /// * `start_node` - The node ID that the tour should start with.
+    /// * `ctx` - The execution context for handling cancellation.
+    /// * `options` - The solver options that may specify which algorithms to use for MST and perfect matching computations.
+    ///
+    /// # Returns
+    /// * `Result<TspSolution, SolverError>` - The computed TSP solution, or an error if the problem is invalid, if fixed edges are present,
+    ///   if the start node is invalid, if any of the algorithmic steps fail, or if the computation is cancelled.
     fn try_solve_with_context(
         &self,
         problem: &TsplibInstance,

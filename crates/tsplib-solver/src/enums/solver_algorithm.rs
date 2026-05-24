@@ -2,6 +2,7 @@
 use serde::{Deserialize, Serialize};
 use strum::EnumIter;
 
+/// The `SolverAlgorithm` enum represents the different algorithms that can be used to solve the TSP problem.
 #[derive(Debug, Serialize, Deserialize, EnumIter)]
 #[serde(rename_all = "snake_case")]
 pub enum SolverAlgorithm {

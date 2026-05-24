@@ -4,16 +4,16 @@ pub mod errors;
 mod matcher;
 mod solver;
 
-use std::collections::{HashMap, HashSet};
-
 pub use solver::{Christofides, Greedy, HeldKarp, SolverOptions};
 
 use errors::{MatcherError, SolverError};
+use std::collections::{HashMap, HashSet};
 use tsplib_core::{
     context::ExecutionContext,
     models::{Edge, TspSolution, TsplibInstance},
 };
 
+/// This trait defines the interface for a perfect matching algorithm that can be used in the context of solving the TSP.
 pub trait PerfectMatchingAlgorithm {
     /// Computes a perfect matching on the given set of odd vertices for the TSP instance.
     ///
@@ -31,6 +31,7 @@ pub trait PerfectMatchingAlgorithm {
     ) -> Result<Vec<Edge>, MatcherError>;
 }
 
+/// This trait defines the interface for a TSP solver that can solve the TSP problem for a given problem instance and starting node.
 pub trait TspSolver {
     /// Solves the TSP problem for the given problem instance and starting node, using the provided execution context.
     /// The implementation of this method should return a `TspSolution` containing a tour and its total cost,

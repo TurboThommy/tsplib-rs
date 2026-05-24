@@ -11,7 +11,7 @@ async fn main() {
     let state = state::AppState::new();
 
     let app = Router::new()
-        .route("/", get(health_check))
+        .route("/health", get(health_check))
         .merge(routes::problems::router())
         .merge(routes::solver_algorithms::router())
         .merge(routes::solver::router())
