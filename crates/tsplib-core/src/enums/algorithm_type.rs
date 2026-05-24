@@ -7,4 +7,5 @@ use strum::EnumIter;
 pub enum AlgorithmType {
     HeldKarp,
     Greedy,
+    Christofides,
 }
