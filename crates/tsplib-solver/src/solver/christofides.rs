@@ -8,7 +8,7 @@ pub struct Christofides {}
 
 impl Christofides {
     pub fn new() -> Self {
-        Christofides {}
+        Self {}
     }
 }
 
@@ -51,7 +51,7 @@ impl TspSolver for Christofides {
         let odd_vertices = mst
             .get_degrees()
             .iter()
-            .filter(|(_, degree)| *degree % 2 == 1)
+            .filter(|(_, degree)| !degree.is_multiple_of(2))
             .map(|(&node_id, _)| node_id)
             .collect::<Vec<_>>();
 
@@ -84,6 +84,9 @@ impl TspSolver for Christofides {
 
         // find the tsp tour
         let tsp_tour = shortcut_eulerian_circuit(&eulerian_circuit);
+
+        // rotate the tour so that it starts with the specified start node
+        let tsp_tour = try_rotate_tour_to_start_node(&tsp_tour, start_node)?;
 
         // compute the total cost of the tour
         let tour_cost = try_calculate_tour_cost(&tsp_tour, problem)?;
@@ -140,4 +143,40 @@ fn try_calculate_tour_cost(tour: &[usize], problem: &TsplibInstance) -> Result<i
                 .map_err(Into::into)
         })
         .sum::<Result<i64, SolverError>>()
+}
+
+/// Rotates a TSP tour so that it starts with the specified start node.
+///
+/// # Arguments
+/// * `tour` - A slice of node IDs representing the TSP tour.
+/// * `start_node` - The node ID that the tour should start with.
+///
+/// # Returns
+/// * `Result<Vec<usize>, SolverError>` - The rotated tour starting with the specified start node,
+///   or an error if the start node is not found in the tour.
+fn try_rotate_tour_to_start_node(
+    tour: &[usize],
+    start_node: usize,
+) -> Result<Vec<usize>, SolverError> {
+    let mut rotated_tour = tour.to_vec();
+
+    // if the tour is closed (first and last node are the same),
+    // remove the duplicate last node before rotation
+    if rotated_tour.first() == rotated_tour.last() {
+        rotated_tour.pop();
+    }
+
+    // find the position of the start node in the tour
+    let pos = rotated_tour
+        .iter()
+        .position(|&node| node == start_node)
+        .ok_or(SolverError::InvalidStartNode)?;
+
+    // rotate the tour so that it starts with the specified start node
+    rotated_tour.rotate_left(pos);
+
+    // close the tour by returning to the starting node
+    rotated_tour.push(start_node);
+
+    Ok(rotated_tour)
 }
