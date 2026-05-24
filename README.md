@@ -50,11 +50,21 @@ If the backend does not start automatically, open a second terminal from the rep
 cargo run -p tsplib-server
 ```
 
+This will start the backend without Blossom V minimum weight perfect matching (MWPM). To start the backend with support for Blossom V use the following command instead:
+```powershell
+cargo run -p tsplib-server --features blossom-v
+```
+
 Then reload:
 
 ```text
 http://127.0.0.1:3001/
 ```
+
+**NOTE**\
+**The Blossom V MWPM requires that Blossom V exists on the machine and that the environment variable `BLOSSOM_V_PATH` is set to it's root directory.**\
+**The operability was tested using version 2.05 of Blossom V which can be obtained from https://pub.ist.ac.at/~vnk/software/blossom5-v2.05.src.tar.gz**
+
 
 ## Useful Commands
 

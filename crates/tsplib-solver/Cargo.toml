@@ -6,3 +6,8 @@ edition = "2024"
 [dependencies]
 thiserror = { workspace = true }
 tsplib-core = { workspace = true }
+blossom-v = { workspace = true, optional = true }
+
+[features]
+default = []
+blossom-v = ["dep:blossom-v"]

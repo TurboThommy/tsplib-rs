@@ -6,6 +6,7 @@ members = [
     "crates/tsplib-server",
     "crates/tsplib-solver",
 ]
+exclude = ["crates/blossom-v", "crates/blossom-v-sys"]
 resolver = "3"
 
 [workspace.dependencies]
@@ -19,3 +20,4 @@ tokio-util = "0.7.18"
 tsplib-core = { path = "crates/tsplib-core" }
 tsplib-parser = { path = "crates/tsplib-parser" }
 tsplib-solver = { path = "crates/tsplib-solver" }
+blossom-v = { path = "crates/blossom-v" }

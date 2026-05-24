@@ -1,5 +1,8 @@
 //! This module defines the SolverError enum, which represents errors that can occur during TSP solving.
 
+#[cfg(feature = "blossom-v")]
+use blossom_v::BlossomVError;
+
 use thiserror::Error;
 use tsplib_core::enums::{
     GraphError,
@@ -49,6 +52,14 @@ pub enum MatcherError {
     OddVertexCountError(usize),
     #[error("No matching candidate found for vertex {0}.")]
     NoMatchingCandidate(usize),
+    #[error("Error from Blossom V algorithm: {0}")]
+    BlossomVError(String),
+    #[error("Matcher failed due to a distance retrieval error: {0}")]
+    DistanceRetrievalError(String),
+    #[error(
+        "Blossom V algorithm is not available. Ensure that the blossom-v feature is enabled and the library is properly set up."
+    )]
+    BlossomVNotAvailable,
 }
 
 impl From<InstanceError> for SolverError {
@@ -81,6 +92,21 @@ impl From<GraphError> for SolverError {
             | GraphError::EulerianCircuitEmptyGraphError => {
                 SolverError::EulerianCircuitError(value.to_string())
             }
+        }
+    }
+}
+
+#[cfg(feature = "blossom-v")]
+impl From<BlossomVError> for MatcherError {
+    fn from(value: BlossomVError) -> Self {
+        MatcherError::BlossomVError(value.to_string())
+    }
+}
+
+impl From<InstanceError> for MatcherError {
+    fn from(value: InstanceError) -> Self {
+        match value {
+            DistanceInvalidNodeId(_, _, _) => MatcherError::BlossomVError(value.to_string()),
         }
     }
 }
