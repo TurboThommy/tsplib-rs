@@ -23,6 +23,9 @@ fn main() {
         "PMrepair.cpp",
         "PMshrink.cpp",
         "misc.cpp",
+        "MinCost/MinCost.cpp",
+        "MinCost/MinCost.h",
+        "MinCost/instances.inc",
     ] {
         println!(
             "cargo:rerun-if-changed={}",
@@ -41,6 +44,8 @@ fn main() {
         .file(blossom_v_path.join("PMrepair.cpp"))
         .file(blossom_v_path.join("PMshrink.cpp"))
         .file(blossom_v_path.join("misc.cpp"))
+        .file(blossom_v_path.join("MinCost/MinCost.cpp"))
         .include(&blossom_v_path)
+        .include(blossom_v_path.join("MinCost"))
         .compile("blossom_v_bridge");
 }
