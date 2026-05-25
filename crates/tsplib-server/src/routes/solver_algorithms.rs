@@ -12,5 +12,6 @@ pub fn router() -> Router<AppState> {
 
 /// Get the list of available algorithms.
 async fn get_algorithms() -> Json<Vec<SolverAlgorithm>> {
+    tracing::info!("Received request to get list of available solver algorithms");
     Json(SolverAlgorithm::iter().collect())
 }

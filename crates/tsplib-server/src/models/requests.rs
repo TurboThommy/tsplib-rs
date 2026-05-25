@@ -3,7 +3,7 @@ use serde::Deserialize;
 use tsplib_solver::{SolverOptions, enums::SolverAlgorithm};
 
 /// This struct represents the request to start a solver on the TSPLIB server.
-#[derive(Deserialize)]
+#[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct StartSolverRequest {
     /// The algorithm to use for solving the problem.
