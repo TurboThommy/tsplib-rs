@@ -25,6 +25,11 @@ impl PerfectMatchingAlgorithm for GreedyMatching {
         odd_vertices: &[usize],
         problem: &tsplib_core::models::TsplibInstance,
     ) -> Result<Vec<tsplib_core::models::Edge>, crate::errors::MatcherError> {
+        tracing::debug!(
+            odd_vertices = odd_vertices.len(),
+            "Starting Greedy perfect matching computation"
+        );
+
         // Ensure that the number of odd vertices is even, as a perfect matching is only possible in this case.
         if !odd_vertices.len().is_multiple_of(2) {
             return Err(MatcherError::OddVertexCountError(odd_vertices.len()));
@@ -51,6 +56,11 @@ impl PerfectMatchingAlgorithm for GreedyMatching {
             // Add the edge (u, v) with the corresponding weight to the matching.
             matching.push(Edge { u, v, weight });
         }
+
+        tracing::debug!(
+            matching_edges = matching.len(),
+            "Greedy perfect matching completed"
+        );
 
         Ok(matching)
     }
