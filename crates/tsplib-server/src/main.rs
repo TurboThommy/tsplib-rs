@@ -31,9 +31,10 @@ async fn main() {
     let app = Router::new()
         .route("/health", get(health_check))
         .merge(routes::problems::router())
-        .merge(routes::solver_algorithms::router())
         .merge(routes::solver::router())
         .merge(routes::cancel::router())
+        .merge(routes::mst::router())
+        .merge(routes::mwpm::router())
         .layer(
             TraceLayer::new_for_http()
                 .make_span_with(DefaultMakeSpan::new().level(Level::INFO))

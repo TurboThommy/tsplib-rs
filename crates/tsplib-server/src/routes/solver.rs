@@ -1,5 +1,10 @@
-//! Handlers for the REST API routes related to running the solvers.
-use axum::{Json, Router, extract::State, routing::post};
+//! Handlers for the REST API routes related to solvers.
+use axum::{
+    Json, Router,
+    extract::State,
+    routing::{get, post},
+};
+use strum::IntoEnumIterator;
 use tokio_util::sync::CancellationToken;
 use tsplib_core::{context::ExecutionContext, models::TspSolution, reader::try_read_tsp_file};
 use tsplib_parser::try_parse;
@@ -15,7 +20,9 @@ use crate::{
 
 /// Router for solver-related endpoints.
 pub fn router() -> Router<AppState> {
-    Router::new().route("/solver/start", post(start_solver))
+    Router::new()
+        .route("/solver/start", post(start_solver))
+        .route("/solver/algorithms", get(get_algorithms))
 }
 
 /// Internal helper function to run the solver in a blocking task.
@@ -150,4 +157,10 @@ async fn start_solver(
         Err(e) if e.is_cancelled() => Err(ServerError::ProcessingCancelled),
         Err(e) => Err(ServerError::from(e)),
     }
+}
+
+/// Get the list of available solver algorithms.
+async fn get_algorithms() -> Json<Vec<SolverAlgorithm>> {
+    tracing::info!("Received request to get list of available solver algorithms");
+    Json(SolverAlgorithm::iter().collect())
 }
