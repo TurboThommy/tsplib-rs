@@ -139,6 +139,8 @@ pub fn parse(problem_id: String, file_content: String) -> TsplibDefinition {
 /// # Errors
 /// * `Err(ParseError)` - An error indicating the specific issue encountered during parsing, such as invalid line formats, unknown header fields, missing required fields, or unknown section types.
 pub fn try_parse(problem_id: String, file_content: String) -> Result<TsplibDefinition, ParseError> {
+    tracing::debug!(%problem_id, "Starting to parse TSP file content");
+
     let mut specification = SpecificationPart::new();
     let mut data_sections: Vec<DataSection> = Vec::new();
     let mut state = ParserState::Header;
@@ -160,8 +162,10 @@ pub fn try_parse(problem_id: String, file_content: String) -> Result<TsplibDefin
                         Err(ParseError::InvalidLineFormat(line.to_string()))?;
                     }
 
+                    tracing::trace!(%line, "Parsing header line as key-value pair");
                     try_parse_header_line(parts[0], parts[1], &mut specification)?;
                 } else if line.contains("SECTION") {
+                    tracing::trace!(%line, "Transitioning to new section state based on section header line");
                     state.try_new_section_from_line(line)?;
                 } else if !line.trim().is_empty() {
                     Err(ParseError::EmptyLineInHeader)?;
@@ -172,6 +176,7 @@ pub fn try_parse(problem_id: String, file_content: String) -> Result<TsplibDefin
             ParserState::Section(ref section_type) => {
                 // end of section or file reached, save the parsed data section
                 if line == "EOF" || line == "-1" {
+                    tracing::trace!(%line, "End of section or file reached, saving parsed data section");
                     if !curr_lines.is_empty() {
                         data_sections.push(try_to_data_section(section_type, curr_lines)?);
                     }
@@ -182,6 +187,7 @@ pub fn try_parse(problem_id: String, file_content: String) -> Result<TsplibDefin
 
                 // new section encountered, save the parsed data section and transition to the new section state
                 if line.contains("SECTION") {
+                    tracing::trace!(%line, "Transitioning to new section state based on section header line");
                     if !curr_lines.is_empty() {
                         data_sections.push(try_to_data_section(section_type, curr_lines)?);
                     }
@@ -201,11 +207,24 @@ pub fn try_parse(problem_id: String, file_content: String) -> Result<TsplibDefin
     if let ParserState::Section(section_type) = state
         && !curr_lines.is_empty()
     {
+        tracing::trace!(
+            "End of file reached with remaining lines in current data section, saving parsed data section"
+        );
         data_sections.push(try_to_data_section(&section_type, curr_lines)?)
     }
 
     // After parsing all lines, create the TSPInstance from the parsed specification and data sections
-    try_create_tsp_instance(problem_id, specification, data_sections)
+    let definition = try_create_tsp_instance(problem_id.clone(), specification, data_sections)?;
+
+    tracing::debug!(
+        %problem_id,
+        problem_name = definition.name,
+        dimension = definition.dimension,
+        section_count = definition.data_sections.len(),
+        "TSP file parsing completed successfully"
+    );
+
+    Ok(definition)
 }
 
 // -----------------------------------------------------------------------------------------------------------------------------------------------

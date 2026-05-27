@@ -27,6 +27,12 @@ impl PerfectMatchingAlgorithm for BlossomVMatching {
         odd_vertices: &[usize],
         problem: &TsplibInstance,
     ) -> Result<Vec<Edge>, MatcherError> {
+        tracing::debug!(
+            odd_vertices = odd_vertices.len(),
+            edge_candidates = odd_vertices.len() * (odd_vertices.len() - 1) / 2,
+            "Starting Blossom V perfect matching"
+        );
+
         // Generate the complete graph of odd vertices with edge weights corresponding to the distances in the TSP instance.
         let mut edges = Vec::new();
 
@@ -64,6 +70,11 @@ impl PerfectMatchingAlgorithm for BlossomVMatching {
                 Ok(Edge { u, v, weight })
             })
             .collect::<Result<Vec<_>, MatcherError>>()?;
+
+        tracing::debug!(
+            matching_edges = result.len(),
+            "Blossom V perfect matching completed"
+        );
 
         Ok(result)
     }

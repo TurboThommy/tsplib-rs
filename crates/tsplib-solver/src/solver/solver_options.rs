@@ -4,7 +4,7 @@ use crate::enums::{MatcherAlgorithm, MstAlgorithm};
 use serde::Deserialize;
 
 /// The `SolverOptions` struct holds optional configuration settings for the TSP solver.
-#[derive(Default, Deserialize)]
+#[derive(Debug, Default, Deserialize)]
 pub struct SolverOptions {
     /// Optional MST algorithm to use in the Christofides algorithm.
     pub mst_algorithm: Option<MstAlgorithm>,

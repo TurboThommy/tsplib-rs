@@ -46,6 +46,12 @@ impl TspSolver for Greedy {
         ctx: ExecutionContext,
         _: SolverOptions,
     ) -> Result<TspSolution, SolverError> {
+        tracing::info!(
+            node_count = problem.nodes.len(),
+            start_node,
+            "Starting Greedy TSP solver"
+        );
+
         // check if the problem instance and start node are valid
         // and get the fixed edge map and targets for quick lookup
         let (fixed_edge_map, fixed_edge_targets) =
@@ -62,6 +68,11 @@ impl TspSolver for Greedy {
         while visited.len() < problem.nodes.len() {
             // check for cancellation
             if ctx.is_cancelled() {
+                tracing::debug!(
+                    visited = visited.len(),
+                    node_count = problem.nodes.len(),
+                    "Greedy solver cancelled"
+                );
                 return Err(SolverError::Cancelled);
             }
 
@@ -70,6 +81,13 @@ impl TspSolver for Greedy {
                 if visited.contains(to) {
                     return Err(SolverError::FixedEdgeToVisitedNode);
                 }
+                tracing::debug!(
+                    from = current_node,
+                    to = *to,
+                    visited = visited.len(),
+                    "Following fixed edge"
+                );
+
                 visited.insert(*to);
                 tour.push(*to);
                 total_distance += problem.try_get_distance(current_node, *to)? as i64;
@@ -101,6 +119,12 @@ impl TspSolver for Greedy {
 
         // return to the starting node
         total_distance += problem.try_get_distance(current_node, start_node)? as i64;
+
+        tracing::info!(
+            tour_length = tour.len(),
+            cost = total_distance,
+            "Greedy solver completed"
+        );
 
         Ok(TspSolution {
             tour,

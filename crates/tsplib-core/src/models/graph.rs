@@ -185,6 +185,12 @@ impl Graph {
     /// * `Result<Vec<usize>, GraphError>` - On success, returns a `Vec<usize>` containing the sequence of node IDs in the Eulerian circuit.
     ///   On failure, returns a `GraphError` indicating the reason for the failure (e.g., odd degree nodes, disconnected graph, empty graph, etc.).
     pub fn try_get_eulerian_circuit(&self) -> Result<Vec<usize>, GraphError> {
+        tracing::debug!(
+            node_count = self.nodes.len(),
+            edge_count = self.edges.len(),
+            "Starting Eulerian circuit computation"
+        );
+
         // check if each node has even degree
         if !self
             .get_degrees()
@@ -199,6 +205,8 @@ impl Graph {
 
         // create a mutable copy of the graph to modify during the algorithm
         let mut g = self.clone();
+
+        let mut cycles = 0;
 
         while !g.edges.is_empty() {
             // find a starting node for the next cycle in the Eulerian circuit
@@ -228,6 +236,14 @@ impl Graph {
                 }
             }
 
+            cycles += 1;
+            tracing::trace!(
+                cycle_start = u,
+                cycle_length = cycle.len(),
+                remaining_edges = g.edges.len(),
+                "Eulerian subcycle computed"
+            );
+
             // merge the cycle found into the resulting circuit k
             if k.is_empty() {
                 k = cycle;
@@ -242,6 +258,12 @@ impl Graph {
                 k.splice(pos..=pos, cycle);
             }
         }
+
+        tracing::debug!(
+            circuit_length = k.len(),
+            cycles,
+            "Eulerian circuit computation completed"
+        );
 
         Ok(k)
     }

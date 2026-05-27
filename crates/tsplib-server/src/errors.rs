@@ -29,19 +29,38 @@ pub enum ServerError {
 impl IntoResponse for ServerError {
     fn into_response(self) -> axum::response::Response {
         let (status, error_message) = match self {
-            ServerError::ProcessingCancelled => (StatusCode::OK, self.to_string()),
+            ServerError::ProcessingCancelled => {
+                tracing::error!(error = %self, "Processing task was cancelled");
+                (StatusCode::OK, self.to_string())
+            }
 
-            ServerError::ProcessingAlreadyRunning => (StatusCode::CONFLICT, self.to_string()),
+            ServerError::ProcessingAlreadyRunning => {
+                tracing::error!(error = %self, "A processing task is already running");
+                (StatusCode::CONFLICT, self.to_string())
+            }
 
-            ServerError::SolverError(msg) => (StatusCode::INTERNAL_SERVER_ERROR, msg),
-            ServerError::IoError(msg) => (StatusCode::INTERNAL_SERVER_ERROR, msg),
+            ServerError::SolverError(ref msg) => {
+                tracing::error!(error = %self, "Solver error occurred");
+                (StatusCode::INTERNAL_SERVER_ERROR, msg.clone())
+            }
+
+            ServerError::IoError(ref msg) => {
+                tracing::error!(error = %self, "I/O error occurred");
+                (StatusCode::INTERNAL_SERVER_ERROR, msg.clone())
+            }
+
             ServerError::ProblemParseError(_) => {
+                tracing::error!(error = %self, "Failed to parse problem instance");
                 (StatusCode::INTERNAL_SERVER_ERROR, self.to_string())
             }
+
             ServerError::MetadataParseError(_) => {
+                tracing::error!(error = %self, "Failed to parse problem metadata");
                 (StatusCode::INTERNAL_SERVER_ERROR, self.to_string())
             }
+
             ServerError::UnsupportedEdgeWeightType(_) => {
+                tracing::error!(error = %self, "Unsupported edge weight type for problem");
                 (StatusCode::INTERNAL_SERVER_ERROR, self.to_string())
             }
         };

@@ -51,6 +51,16 @@ impl TspSolver for Christofides {
         ctx: tsplib_core::context::ExecutionContext,
         options: SolverOptions,
     ) -> Result<TspSolution, crate::errors::SolverError> {
+        let mst_algorithm = options.mst_algorithm.unwrap_or_default();
+        let matcher_algorithm = options.matcher_algorithm.unwrap_or_default();
+        tracing::info!(
+            node_count = problem.nodes.len(),
+            start_node,
+            mst_algorithm = ?mst_algorithm,
+            matcher_algorithm = ?matcher_algorithm,
+            "Starting Christofides solver"
+        );
+
         // currently the christofides implementation does not support fixed edges
         if problem.fixed_edges.is_some() {
             return Err(SolverError::FixedEdgesNotSupported);
@@ -61,19 +71,22 @@ impl TspSolver for Christofides {
 
         // check for cancellation before starting the MST computation, as it can be expensive for large instances
         if ctx.is_cancelled() {
+            tracing::debug!("Christofides cancelled before MST computation");
             return Err(SolverError::Cancelled);
         }
 
         // get the minimum spanning tree
-        let mst_algorithm = options.mst_algorithm.unwrap_or_default();
         let mst = match mst_algorithm {
             MstAlgorithm::Kruskal => problem.try_get_mst_kruskal()?,
             MstAlgorithm::Prim => problem.try_get_mst_prim(start_node)?,
             MstAlgorithm::Boruvka => problem.try_get_mst_boruvka()?,
         };
 
+        tracing::debug!(mst_edges = mst.edges.len(), "MST computed");
+
         // check for cancellation after MST computation again
         if ctx.is_cancelled() {
+            tracing::debug!("Christofides cancelled after MST computation");
             return Err(SolverError::Cancelled);
         }
 
@@ -85,8 +98,12 @@ impl TspSolver for Christofides {
             .map(|(&node_id, _)| node_id)
             .collect::<Vec<_>>();
 
+        tracing::debug!(
+            odd_vertices = odd_vertices.len(),
+            "Odd degree vertices computed"
+        );
+
         // compute a perfect matching on the odd degree vertices
-        let matcher_algorithm = options.matcher_algorithm.unwrap_or_default();
         let matcher: Box<dyn PerfectMatchingAlgorithm> = match matcher_algorithm {
             MatcherAlgorithm::Greedy => Box::new(GreedyMatching::new()),
             MatcherAlgorithm::BlossomV => Box::new(BlossomVMatching::new()),
@@ -94,8 +111,11 @@ impl TspSolver for Christofides {
 
         let matching = matcher.try_compute(&odd_vertices, problem)?;
 
+        tracing::debug!(matching_edges = matching.len(), "Perfect matching computed");
+
         // check for cancellation after perfect matching computation
         if ctx.is_cancelled() {
+            tracing::debug!("Christofides cancelled after perfect matching computation");
             return Err(SolverError::Cancelled);
         }
 
@@ -103,27 +123,56 @@ impl TspSolver for Christofides {
         let mut multigraph = mst.clone();
         multigraph.edges.extend(matching);
 
+        tracing::debug!(
+            multigraph_edges = multigraph.edges.len(),
+            "Multigraph created"
+        );
+
         // check for cancellation before finding the Eulerian tour
         if ctx.is_cancelled() {
+            tracing::debug!("Christofides cancelled after multigraph creation");
             return Err(SolverError::Cancelled);
         }
 
         // find an Eulerian tour in the multigraph
         let eulerian_circuit = multigraph.try_get_eulerian_circuit()?;
 
+        tracing::debug!(
+            circuit_length = eulerian_circuit.len(),
+            "Eulerian circuit computed"
+        );
+
         // check for cancellation before shortcutting the Eulerian circuit
         if ctx.is_cancelled() {
+            tracing::debug!("Christofides cancelled after Eulerian circuit computation");
             return Err(SolverError::Cancelled);
         }
 
         // find the tsp tour
         let tsp_tour = shortcut_eulerian_circuit(&eulerian_circuit);
 
+        tracing::debug!(
+            tour_length = tsp_tour.len(),
+            "Eulerian circuit shortcut completed"
+        );
+
         // rotate the tour so that it starts with the specified start node
-        let tsp_tour = try_rotate_tour_to_start_node(&tsp_tour, start_node)?;
+        let mut tsp_tour = try_rotate_tour_to_start_node(&tsp_tour, start_node)?;
 
         // compute the total cost of the tour
         let tour_cost = try_calculate_tour_cost(&tsp_tour, problem)?;
+
+        // remove start node from the end of the tour for consistency with other solvers
+        // which return an open tour (without the duplicate start node at the end)
+        if tsp_tour.first() == tsp_tour.last() {
+            tsp_tour.pop();
+        }
+
+        tracing::info!(
+            tour_length = tsp_tour.len(),
+            tour_cost,
+            "Christofides solver completed"
+        );
 
         Ok(TspSolution {
             tour: tsp_tour,
