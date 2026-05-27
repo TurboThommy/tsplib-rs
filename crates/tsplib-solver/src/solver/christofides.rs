@@ -157,10 +157,16 @@ impl TspSolver for Christofides {
         );
 
         // rotate the tour so that it starts with the specified start node
-        let tsp_tour = try_rotate_tour_to_start_node(&tsp_tour, start_node)?;
+        let mut tsp_tour = try_rotate_tour_to_start_node(&tsp_tour, start_node)?;
 
         // compute the total cost of the tour
         let tour_cost = try_calculate_tour_cost(&tsp_tour, problem)?;
+
+        // remove start node from the end of the tour for consistency with other solvers
+        // which return an open tour (without the duplicate start node at the end)
+        if tsp_tour.first() == tsp_tour.last() {
+            tsp_tour.pop();
+        }
 
         tracing::info!(
             tour_length = tsp_tour.len(),
