@@ -19,6 +19,12 @@ pub(super) fn try_to_data_section(
     section_type: &DataSectionType,
     lines: Vec<&str>,
 ) -> Result<DataSection, ParseError> {
+    tracing::trace!(
+        section_type = ?section_type,
+        line_count = lines.len(),
+        "Parsing data section"
+    );
+
     let data_section = match section_type {
         // example given in the tsplib repository
         DataSectionType::NodeCoordSection => try_parse_node_coord_section(lines)?,
