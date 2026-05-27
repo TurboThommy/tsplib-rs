@@ -89,10 +89,16 @@ impl UnionFind {
 /// # Returns
 /// * `Result<Graph, ConversionError>` - Graph struct containing the edges in the MST, or an error if the MST cannot be computed.
 pub fn try_get_mst_kruskal(tsplib_instance: &TsplibInstance) -> Result<Graph, MstComputationError> {
+    tracing::debug!(
+        node_count = tsplib_instance.nodes.len(),
+        edge_candidates = tsplib_instance.adjacency_matrix.len()
+            * (tsplib_instance.adjacency_matrix.len() - 1)
+            / 2,
+        "Starting Kruskal's MST computation",
+    );
     let matrix = &tsplib_instance.adjacency_matrix;
 
     if matrix.is_empty() {
-        println!("Adjacency matrix is empty, cannot compute MST");
         return Err(MstComputationError::EmptyAdjacencyMatrix);
     }
 
@@ -121,6 +127,13 @@ pub fn try_get_mst_kruskal(tsplib_instance: &TsplibInstance) -> Result<Graph, Ms
         }
     }
 
+    let total_weight: i64 = t.iter().map(|&(_, _, w)| i64::from(w)).sum();
+    tracing::debug!(
+        mst_edges = t.len(),
+        total_weight,
+        "Kruskal's MST computation completed"
+    );
+
     Ok(Graph {
         nodes: tsplib_instance.nodes.clone(),
         edges: t
@@ -142,6 +155,14 @@ pub fn try_get_mst_prim(
     tsplib_instance: &TsplibInstance,
     start_node: usize,
 ) -> Result<Graph, MstComputationError> {
+    tracing::debug!(
+        node_count = tsplib_instance.nodes.len(),
+        edge_candidates = tsplib_instance.adjacency_matrix.len()
+            * (tsplib_instance.adjacency_matrix.len() - 1)
+            / 2,
+        start_node,
+        "Starting Prim's MST computation",
+    );
     let matrix = &tsplib_instance.adjacency_matrix;
     let n = matrix.len();
 
@@ -194,6 +215,13 @@ pub fn try_get_mst_prim(
         }
     }
 
+    let total_weight: i64 = t.iter().map(|&(_, _, w)| i64::from(w)).sum();
+    tracing::debug!(
+        mst_edges = t.len(),
+        total_weight,
+        "Prim's MST computation completed"
+    );
+
     Ok(Graph {
         nodes: tsplib_instance.nodes.clone(),
         edges: t
@@ -218,6 +246,14 @@ pub fn try_get_mst_boruvka(tsplib_instance: &TsplibInstance) -> Result<Graph, Ms
             cheapest[root] = Some(edge);
         }
     }
+
+    tracing::debug!(
+        node_count = tsplib_instance.nodes.len(),
+        edge_candidates = tsplib_instance.adjacency_matrix.len()
+            * (tsplib_instance.adjacency_matrix.len() - 1)
+            / 2,
+        "Starting Borůvka's MST computation",
+    );
 
     let matrix = &tsplib_instance.adjacency_matrix;
 
@@ -247,7 +283,10 @@ pub fn try_get_mst_boruvka(tsplib_instance: &TsplibInstance) -> Result<Graph, Ms
     // initially, each node is its own component
     let mut components = n;
 
+    let mut rounds = 0;
+
     while components > 1 {
+        rounds += 1;
         let mut cheapest = vec![None; n + 1];
 
         edges.iter().for_each(|&edge| {
@@ -280,6 +319,14 @@ pub fn try_get_mst_boruvka(tsplib_instance: &TsplibInstance) -> Result<Graph, Ms
             ));
         }
     }
+
+    let total_weight: i64 = t.iter().map(|&e| i64::from(e.weight)).sum();
+    tracing::debug!(
+        mst_edges = t.len(),
+        total_weight,
+        rounds,
+        "Borůvka's MST computation completed"
+    );
 
     Ok(Graph {
         nodes: tsplib_instance.nodes.clone(),
