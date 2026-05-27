@@ -267,6 +267,13 @@ impl TspSolver for HeldKarp {
         // number of nodes in the problem
         let n = problem.nodes.len();
 
+        tracing::info!(
+            node_count = n,
+            start_node,
+            max_dimension = self.max_dimension,
+            "Starting Held-Karp TSP solver"
+        );
+
         // check if dimension is within limits
         if n > self.max_dimension {
             return Err(SolverError::DimensionExceeded);
@@ -286,8 +293,19 @@ impl TspSolver for HeldKarp {
 
         // check for cancellation before starting the main computation
         if ctx.is_cancelled() {
+            tracing::debug!(
+                node_count = n,
+                start_node,
+                "Held-Karp solver cancelled before starting main computation"
+            );
             return Err(SolverError::Cancelled);
         }
+
+        tracing::debug!(
+            subset_count = 1usize << n,
+            table_cells = (1usize << n) * n,
+            "Building Held-Karp DP and parent tables"
+        );
 
         // build the dp and parent tables
         let (dp, parent) = self.try_build_tables(
@@ -299,13 +317,35 @@ impl TspSolver for HeldKarp {
             ctx,
         )?;
 
+        tracing::debug!(
+            "Held-Karp tables built. Starting to find minimal tour cost and last node of the optimal tour",
+        );
+
         // find the minimal tour cost and the last node in the optimal tour
         let (minimal_cost, last_node) =
             self.try_find_minimal_tour(problem, &dp, n, start_idx, full_mask, ctx)?;
 
+        tracing::debug!(
+            minimal_cost,
+            last_node = last_node + 1,
+            "Minimal tour cost and last node found, starting tour reconstruction"
+        );
+
         // reconstruct the optimal tour based on the last node and the parent table
         let tour =
             self.try_reconstruct_tour(&parent, start_node, start_idx, full_mask, last_node, ctx)?;
+
+        tracing::debug!(
+            last_node = last_node + 1,
+            cost = minimal_cost,
+            "Minimal Held-Karp tour found"
+        );
+
+        tracing::info!(
+            tour_length = tour.len(),
+            cost = minimal_cost,
+            "Held-Karp solver completed"
+        );
 
         Ok(TspSolution {
             tour,
