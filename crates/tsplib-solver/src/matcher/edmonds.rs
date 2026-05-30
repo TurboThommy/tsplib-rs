@@ -10,6 +10,16 @@ enum Label {
     Unlabeled,
 }
 
+#[derive(Debug, PartialEq, Eq)]
+enum SearchResult {
+    AugmentingPath(Vec<usize>),
+    Blossom {
+        cycle: Vec<usize>,
+        edge: (usize, usize),
+    },
+    None,
+}
+
 /// A struct to represent the state of the matching during the algorithm.
 #[derive(Debug, Clone)]
 struct MatchingState {
@@ -134,7 +144,7 @@ fn try_reconstruct_path(
     Ok(path)
 }
 
-/// Finds an augmenting path in the graph starting from the given root vertex, without handling blossoms.
+/// Searches for an augmenting path in the graph starting from the given root vertex using a breadth-first search approach.
 ///
 /// # Arguments
 /// * `graph` - A reference to the adjacency list representation of the graph.
@@ -144,11 +154,11 @@ fn try_reconstruct_path(
 /// # Returns
 /// * `Option<Vec<usize>>` - An optional vector of vertex indices representing the augmenting path found.
 ///   If no augmenting path exists, returns `None`.
-fn find_augmenting_path_without_blossoms(
+fn search_alternating_tree(
     graph: &[Vec<usize>],
     matching: &MatchingState,
     root: usize,
-) -> Result<Option<Vec<usize>>, MatcherError> {
+) -> Result<SearchResult, MatcherError> {
     let node_count = graph.len();
 
     // Initialize the label and parent vectors for the breadth-first search.
@@ -169,7 +179,9 @@ fn find_augmenting_path_without_blossoms(
 
                     // If vertex `v` is exposed, an augmenting path from the root to `v` was found.
                     if matching.is_exposed(v) {
-                        return try_reconstruct_path(root, v, &parent).map(Some);
+                        return Ok(SearchResult::AugmentingPath(try_reconstruct_path(
+                            root, v, &parent,
+                        )?));
                     }
 
                     // If vertex `v` is not exposed, label it as odd and label its mate as even,
@@ -186,9 +198,21 @@ fn find_augmenting_path_without_blossoms(
                     queue.push_back(mate);
                 }
 
+                // Blossom path
                 Label::Even => {
-                    // Blossom path
-                    todo!();
+                    // Ignore self-loops
+                    if u == v {
+                        continue;
+                    }
+
+                    if let Some(lca) = find_lca(u, v, &parent) {
+                        let cycle = try_reconstruct_blossom_cycle(u, v, lca, &parent)?;
+
+                        return Ok(SearchResult::Blossom {
+                            cycle,
+                            edge: (u, v),
+                        });
+                    }
                 }
 
                 Label::Odd => {}
@@ -196,7 +220,7 @@ fn find_augmenting_path_without_blossoms(
         }
     }
 
-    Ok(None)
+    Ok(SearchResult::None)
 }
 
 /// Finds the least common ancestor (LCA) of two vertices in the search tree defined by the parent pointers.
@@ -322,13 +346,16 @@ mod tests {
         matching.match_edge(1, 2);
         matching.match_edge(3, 4);
 
-        let path = find_augmenting_path_without_blossoms(&graph, &matching, 0)
-            .unwrap()
-            .expect("augmenting path should exist");
+        let path = search_alternating_tree(&graph, &matching, 0).expect("search should succeed");
 
-        assert_eq!(path, vec![0, 1, 2, 3, 4, 5]);
+        match path {
+            SearchResult::AugmentingPath(vertices) => {
+                assert_eq!(vertices, vec![0, 1, 2, 3, 4, 5]);
 
-        matching.augment_path(&path);
+                matching.augment_path(&vertices);
+            }
+            _ => panic!("expected blossom"),
+        }
 
         assert_eq!(matching.mate[0], Some(1));
         assert_eq!(matching.mate[1], Some(0));
@@ -367,5 +394,35 @@ mod tests {
             .expect("should reconstruct blossom cycle");
 
         assert_eq!(cycle, vec![2, 1, 0, 3, 4]);
+    }
+
+    #[test]
+    fn detect_simple_blossom_cycles() {
+        let graph = vec![
+            vec![1, 3], // 0 root
+            vec![0, 2], // 1
+            vec![1, 4], // 2
+            vec![0, 4], // 3
+            vec![2, 3], // 4
+        ];
+
+        let mut matching = MatchingState::new(5);
+        matching.match_edge(1, 2);
+        matching.match_edge(3, 4);
+
+        let result = search_alternating_tree(&graph, &matching, 0).expect("search should succeed");
+
+        match result {
+            SearchResult::Blossom { cycle, edge } => {
+                assert_eq!(cycle.len(), 5);
+                assert!(matches!(edge, (2, 4) | (4, 2)));
+                assert!(cycle.contains(&0));
+                assert!(cycle.contains(&1));
+                assert!(cycle.contains(&2));
+                assert!(cycle.contains(&3));
+                assert!(cycle.contains(&4));
+            }
+            _ => panic!("expected blossom"),
+        }
     }
 }
