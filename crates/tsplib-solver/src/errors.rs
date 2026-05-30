@@ -64,6 +64,12 @@ pub enum MatcherError {
     BlossomVNotAvailable,
     #[error("Too many odd vertices ({0}) for matcher. Maximum allowed is {1}.")]
     TooManyOddVertices(usize, usize),
+    #[error("Invalid augmenting path found during matching.")]
+    InvalidAugmentingPath,
+    #[error("Path is not connected to root during reconstruction.")]
+    PathReconstructionError,
+    #[error("Expected matched node {0} to have a mate, but it was missing.")]
+    MissingMate(usize),
 }
 
 impl From<InstanceError> for SolverError {
