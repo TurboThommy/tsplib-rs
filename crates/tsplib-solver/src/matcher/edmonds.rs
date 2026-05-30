@@ -230,6 +230,60 @@ fn find_lca(u: usize, v: usize, parent: &[Option<usize>]) -> Option<usize> {
     None
 }
 
+/// Reconstructs the cycle formed by a blossom when an edge is added between two vertices `u` and `v` that are both labeled as even.
+///
+/// # Arguments
+/// * `u` - The index of the first vertex involved in the blossom.
+/// * `v` - The index of the second vertex involved in the blossom.
+/// * `lca` - The index of the least common ancestor of `u` and `v` in the search tree.
+/// * `parent` - A slice of `Option<usize>` representing the parent pointers for each vertex in the search tree.
+///
+/// # Returns
+/// * `Result<Vec<usize>, MatcherError>` - A vector of vertex indices representing the cycle formed by the blossom,
+///   or an error if the cycle cannot be reconstructed due to connectivity issues with
+fn try_reconstruct_blossom_cycle(
+    u: usize,
+    v: usize,
+    lca: usize,
+    parent: &[Option<usize>],
+) -> Result<Vec<usize>, MatcherError> {
+    // Reconstruct the path from `u` to `lca`
+    let mut left = Vec::new();
+    let mut current = u;
+
+    while current != lca {
+        left.push(current);
+        current = parent
+            .get(current)
+            .copied()
+            .flatten()
+            .ok_or(MatcherError::NodeNotConnectedToLca(current, lca))?;
+    }
+
+    left.push(lca);
+
+    // Reconstruct the path from `v` to `lca`
+    let mut right = Vec::new();
+    let mut current = v;
+
+    while current != lca {
+        right.push(current);
+        current = parent
+            .get(current)
+            .copied()
+            .flatten()
+            .ok_or(MatcherError::NodeNotConnectedToLca(current, lca))?;
+    }
+
+    // The path from `v` to `lca` is reversed to maintain the correct order
+    // when combining with the path from `u` to `lca`.
+    right.reverse();
+
+    // Combine the two paths to form the cycle of the blossom.
+    left.extend(right);
+    Ok(left)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -297,5 +351,21 @@ mod tests {
         let lca = find_lca(2, 4, &parent);
 
         assert_eq!(lca, Some(0));
+    }
+
+    #[test]
+    fn reconstruct_blossom_cycle() {
+        let parent = vec![
+            None,    // 0 root/lca
+            Some(0), // 1
+            Some(1), // 2 = u
+            Some(0), // 3
+            Some(3), // 4 = v
+        ];
+
+        let cycle = try_reconstruct_blossom_cycle(2, 4, 0, &parent)
+            .expect("should reconstruct blossom cycle");
+
+        assert_eq!(cycle, vec![2, 1, 0, 3, 4]);
     }
 }

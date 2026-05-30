@@ -70,6 +70,10 @@ pub enum MatcherError {
     PathReconstructionError,
     #[error("Expected matched node {0} to have a mate, but it was missing.")]
     MissingMate(usize),
+    #[error(
+        "Node {0} is not connected to its least common ancestor {1} during path reconstruction."
+    )]
+    NodeNotConnectedToLca(usize, usize),
 }
 
 impl From<InstanceError> for SolverError {
