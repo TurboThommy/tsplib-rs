@@ -4,6 +4,7 @@ pub mod errors;
 mod matcher;
 mod solver;
 
+pub use matcher::{BlossomVMatching, GreedyMatching, RecursiveMatching};
 pub use solver::{Christofides, Greedy, HeldKarp, SolverOptions};
 
 use errors::{MatcherError, SolverError};

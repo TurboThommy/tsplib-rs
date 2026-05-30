@@ -62,6 +62,8 @@ pub enum MatcherError {
         "Blossom V algorithm is not available. Ensure that the blossom-v feature is enabled and the library is properly set up."
     )]
     BlossomVNotAvailable,
+    #[error("Too many odd vertices ({0}) for matcher. Maximum allowed is {1}.")]
+    TooManyOddVertices(usize, usize),
 }
 
 impl From<InstanceError> for SolverError {

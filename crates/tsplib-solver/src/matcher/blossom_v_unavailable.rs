@@ -4,6 +4,7 @@
 use crate::{PerfectMatchingAlgorithm, errors::MatcherError};
 use tsplib_core::models::{Edge, TsplibInstance};
 
+#[derive(Default)]
 pub struct BlossomVMatching {}
 
 impl BlossomVMatching {
