@@ -1,5 +1,5 @@
 //! This module implements the Edmonds' Blossom algorithm for finding a minimum weight perfect matching in a graph.
-use std::collections::VecDeque;
+use std::collections::{HashSet, VecDeque};
 
 use crate::errors::MatcherError;
 
@@ -199,6 +199,37 @@ fn find_augmenting_path_without_blossoms(
     Ok(None)
 }
 
+/// Finds the least common ancestor (LCA) of two vertices in the search tree defined by the parent pointers.
+///
+/// # Arguments
+/// * `u` - The index of the first vertex.
+/// * `v` - The index of the second vertex.
+/// * `parent` - A slice of `Option<usize>` representing the parent pointers for each vertex in the search tree.
+///
+/// # Returns
+/// * `Option<usize>` - The index of the least common ancestor of `u` and `v`, or `None` if no common ancestor exists.
+fn find_lca(u: usize, v: usize, parent: &[Option<usize>]) -> Option<usize> {
+    let mut ancestors = HashSet::new();
+
+    // Traverse the path from `u` to the root, adding each vertex to the set of ancestors.
+    let mut current = Some(u);
+    while let Some(node) = current {
+        ancestors.insert(node);
+        current = parent[node];
+    }
+
+    // Traverse the path from `v` to the root, checking if any vertex is in the set of ancestors.
+    let mut current = Some(v);
+    while let Some(node) = current {
+        if ancestors.contains(&node) {
+            return Some(node);
+        }
+        current = parent[node];
+    }
+
+    None
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -251,5 +282,20 @@ mod tests {
         assert_eq!(matching.mate[3], Some(2));
         assert_eq!(matching.mate[4], Some(5));
         assert_eq!(matching.mate[5], Some(4));
+    }
+
+    #[test]
+    fn find_lca_in_alternating_tree() {
+        let parent = vec![
+            None,    // 0 (root)
+            Some(0), // 1
+            Some(1), // 2
+            Some(0), // 3
+            Some(3), // 4
+        ];
+
+        let lca = find_lca(2, 4, &parent);
+
+        assert_eq!(lca, Some(0));
     }
 }
