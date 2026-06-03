@@ -1,9 +1,12 @@
 //! This module implements the Edmonds' Blossom algorithm for finding a minimum weight perfect matching in a graph.
 use std::collections::{HashMap, HashSet, VecDeque};
 
-use tsplib_core::models::Graph;
+use tsplib_core::models::{Edge, Graph, TsplibInstance};
 
-use crate::errors::MatcherError;
+use crate::{PerfectMatchingAlgorithm, errors::MatcherError};
+
+#[derive(Default)]
+pub struct EdmondsMatching {}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Label {
@@ -68,6 +71,31 @@ struct AlternatingTree {
 struct TreeSearchResult {
     tree: AlternatingTree,
     result: SearchResult,
+}
+
+impl EdmondsMatching {
+    pub fn new() -> Self {
+        Self {}
+    }
+}
+
+impl PerfectMatchingAlgorithm for EdmondsMatching {
+    fn try_compute(
+        &self,
+        odd_vertices: &[usize],
+        problem: &tsplib_core::models::TsplibInstance,
+    ) -> Result<Vec<Edge>, MatcherError> {
+        if !odd_vertices.len().is_multiple_of(2) {
+            return Err(MatcherError::OddVertexCountError(odd_vertices.len()));
+        }
+
+        let graph = try_build_complete_graph_for_vertices(odd_vertices, problem)?;
+        let edmonds_graph = EdmondsGraph::from_graph(&graph);
+
+        let matching = try_compute_weighted_matching(&edmonds_graph)?;
+
+        matching_to_edges(&edmonds_graph, &matching)
+    }
 }
 
 impl MatchingState {
@@ -1515,6 +1543,112 @@ fn try_find_weighted_augmenting_path(
             }
         }
     }
+}
+
+/// Attempts to compute a maximum weight matching in the graph using Edmonds' algorithm by repeatedly searching for weighted augmenting paths,
+/// augmenting the matching, and updating the dual variables until no more augmenting paths can be found,
+/// and returns an error if any issues occur during the search process, such as missing mates or invalid node indices.
+///
+/// # Arguments
+/// * `graph` - A reference to the graph represented as an `EdmondsGraph` for which to compute the maximum weight matching.
+///
+/// # Returns
+/// * `Result<MatchingState, MatcherError>` - The final state of the matching after no more augmenting paths can be found,
+///   or an error if any issues occur during the search process, such as missing mates or invalid node indices.
+fn try_compute_weighted_matching(graph: &EdmondsGraph) -> Result<MatchingState, MatcherError> {
+    let mut matching = MatchingState::new(graph.adjacency.len());
+    let mut duals = try_initialize_duals(graph)?;
+
+    loop {
+        let mut augmented = false;
+
+        for root in 0..graph.adjacency.len() {
+            if !matching.is_exposed(root) {
+                continue;
+            }
+
+            let Some(path) = try_find_weighted_augmenting_path(graph, &mut duals, &matching, root)?
+            else {
+                continue;
+            };
+
+            matching.augment_path(&path);
+            augmented = true;
+            break;
+        }
+
+        if !augmented {
+            break;
+        }
+    }
+
+    Ok(matching)
+}
+
+/// Converts a `MatchingState` representing the matching in the graph into a vector of `Edge` structs.
+///
+/// # Arguments
+/// * `graph` - A reference to the graph represented as an `EdmondsGraph`, which is used to retrieve the weights of the edges in the matching.
+/// * `matching` - A reference to the `MatchingState` representing the current state of the matching, which contains the mate of each vertex in the graph.
+///
+/// # Returns
+/// * `Result<Vec<Edge>, MatcherError>` - A vector of `Edge` structs representing the edges in the matching,
+///   or an error if any issues occur while converting the matching to edges, such as missing edges in the graph for the matched vertices.
+fn matching_to_edges(
+    graph: &EdmondsGraph,
+    matching: &MatchingState,
+) -> Result<Vec<Edge>, MatcherError> {
+    matching
+        .mate
+        .iter()
+        .enumerate()
+        .filter_map(|(u, &mate)| {
+            let v = mate?;
+
+            if u >= v {
+                return None;
+            }
+
+            Some(
+                graph
+                    .weight(u, v)
+                    .ok_or(MatcherError::MissingEdge(u, v))
+                    .map(|weight| Edge { u, v, weight }),
+            )
+        })
+        .collect()
+}
+
+fn try_build_complete_graph_for_vertices(
+    vertices: &[usize],
+    problem: &TsplibInstance,
+) -> Result<Graph, MatcherError> {
+    let nodes = vertices
+        .iter()
+        .map(|&id| {
+            problem
+                .nodes
+                .iter()
+                .find(|node| node.id == id)
+                .copied()
+                .ok_or(MatcherError::NoMatchingCandidate(id))
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+
+    let mut edges = Vec::new();
+
+    for i in 0..nodes.len() {
+        for j in (i + 1)..vertices.len() {
+            let u = vertices[i];
+            let v = vertices[j];
+
+            let weight = problem.try_get_distance(u, v)?;
+
+            edges.push(Edge { u, v, weight });
+        }
+    }
+
+    Ok(Graph { nodes, edges })
 }
 
 #[cfg(test)]

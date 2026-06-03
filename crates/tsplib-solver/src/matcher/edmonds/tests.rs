@@ -2,6 +2,7 @@ use tsplib_core::models::{Edge, Node};
 
 use super::*;
 
+#[allow(clippy::needless_range_loop)]
 fn test_graph(adjacency: Vec<Vec<usize>>) -> EdmondsGraph {
     let nodes = (0..adjacency.len())
         .map(|id| Node {
@@ -23,6 +24,18 @@ fn test_graph(adjacency: Vec<Vec<usize>>) -> EdmondsGraph {
     }
 
     EdmondsGraph::from_graph(&Graph { nodes, edges })
+}
+
+fn matching_weight(graph: &EdmondsGraph, matching: &MatchingState) -> i32 {
+    matching
+        .mate
+        .iter()
+        .enumerate()
+        .filter_map(|(u, &mate)| {
+            let v = mate?;
+            (u < v).then(|| graph.weight(u, v).unwrap())
+        })
+        .sum()
 }
 
 #[test]
@@ -138,6 +151,39 @@ fn detect_simple_blossom_cycles() {
         }
         _ => panic!("expected blossom"),
     }
+}
+
+fn brute_force_minimum_matching_weight(graph: &EdmondsGraph, vertices: &[usize]) -> Option<i32> {
+    if vertices.is_empty() {
+        return Some(0);
+    }
+
+    let u = vertices[0];
+    let mut best: Option<i32> = None;
+
+    for v_idx in 1..vertices.len() {
+        let v = vertices[v_idx];
+
+        let remaining = vertices
+            .iter()
+            .enumerate()
+            .filter_map(|(idx, &vertex)| (idx != 0 && idx != v_idx).then_some(vertex))
+            .collect::<Vec<_>>();
+
+        let Some(edge_weight) = graph.weight(u, v) else {
+            continue;
+        };
+
+        let Some(rest_weight) = brute_force_minimum_matching_weight(graph, &remaining) else {
+            continue;
+        };
+
+        let candidate = edge_weight + rest_weight;
+
+        best = Some(best.map_or(candidate, |current| current.min(candidate)));
+    }
+
+    best
 }
 
 #[test]
@@ -1330,4 +1376,771 @@ fn weighted_search_expands_path_through_tight_blossom() {
         .expect("augmenting path should exist");
 
     assert_eq!(path, vec![6, 5, 0, 3, 7]);
+}
+
+#[test]
+fn computes_weighted_matching_on_simple_graph() {
+    let graph = EdmondsGraph::from_graph(&Graph {
+        nodes: vec![
+            Node {
+                id: 0,
+                x: 0.0,
+                y: 0.0,
+                z: None,
+            },
+            Node {
+                id: 1,
+                x: 0.0,
+                y: 0.0,
+                z: None,
+            },
+            Node {
+                id: 2,
+                x: 0.0,
+                y: 0.0,
+                z: None,
+            },
+            Node {
+                id: 3,
+                x: 0.0,
+                y: 0.0,
+                z: None,
+            },
+        ],
+        edges: vec![
+            Edge {
+                u: 0,
+                v: 1,
+                weight: 1,
+            },
+            Edge {
+                u: 2,
+                v: 3,
+                weight: 1,
+            },
+            Edge {
+                u: 0,
+                v: 2,
+                weight: 10,
+            },
+            Edge {
+                u: 1,
+                v: 3,
+                weight: 10,
+            },
+        ],
+    });
+
+    let matching = try_compute_weighted_matching(&graph).expect("weighted matching should compute");
+
+    assert!(matching.is_valid());
+    assert_eq!(matching.cardinality(), 2);
+
+    assert_eq!(matching.mate[0], Some(1));
+    assert_eq!(matching.mate[1], Some(0));
+    assert_eq!(matching.mate[2], Some(3));
+    assert_eq!(matching.mate[3], Some(2));
+}
+
+#[test]
+fn computes_lower_weight_perfect_matching() {
+    let graph = EdmondsGraph::from_graph(&Graph {
+        nodes: vec![
+            Node {
+                id: 0,
+                x: 0.0,
+                y: 0.0,
+                z: None,
+            },
+            Node {
+                id: 1,
+                x: 0.0,
+                y: 0.0,
+                z: None,
+            },
+            Node {
+                id: 2,
+                x: 0.0,
+                y: 0.0,
+                z: None,
+            },
+            Node {
+                id: 3,
+                x: 0.0,
+                y: 0.0,
+                z: None,
+            },
+        ],
+        edges: vec![
+            Edge {
+                u: 0,
+                v: 1,
+                weight: 100,
+            },
+            Edge {
+                u: 2,
+                v: 3,
+                weight: 100,
+            },
+            Edge {
+                u: 0,
+                v: 2,
+                weight: 1,
+            },
+            Edge {
+                u: 1,
+                v: 3,
+                weight: 1,
+            },
+        ],
+    });
+
+    let matching = try_compute_weighted_matching(&graph).expect("weighted matching should compute");
+
+    assert!(matching.is_valid());
+    assert_eq!(matching.cardinality(), 2);
+
+    assert_eq!(matching.mate[0], Some(2));
+    assert_eq!(matching.mate[2], Some(0));
+    assert_eq!(matching.mate[1], Some(3));
+    assert_eq!(matching.mate[3], Some(1));
+}
+
+#[test]
+fn computes_weighted_matching_through_blossom() {
+    let graph = EdmondsGraph::from_graph(&Graph {
+        nodes: vec![
+            Node {
+                id: 0,
+                x: 0.0,
+                y: 0.0,
+                z: None,
+            },
+            Node {
+                id: 1,
+                x: 0.0,
+                y: 0.0,
+                z: None,
+            },
+            Node {
+                id: 2,
+                x: 0.0,
+                y: 0.0,
+                z: None,
+            },
+            Node {
+                id: 3,
+                x: 0.0,
+                y: 0.0,
+                z: None,
+            },
+            Node {
+                id: 4,
+                x: 0.0,
+                y: 0.0,
+                z: None,
+            },
+            Node {
+                id: 5,
+                x: 0.0,
+                y: 0.0,
+                z: None,
+            },
+        ],
+        edges: vec![
+            Edge {
+                u: 0,
+                v: 1,
+                weight: 10,
+            },
+            Edge {
+                u: 1,
+                v: 2,
+                weight: 10,
+            },
+            Edge {
+                u: 2,
+                v: 3,
+                weight: 10,
+            },
+            Edge {
+                u: 3,
+                v: 4,
+                weight: 10,
+            },
+            Edge {
+                u: 4,
+                v: 0,
+                weight: 10,
+            },
+            Edge {
+                u: 0,
+                v: 5,
+                weight: 1,
+            },
+            Edge {
+                u: 2,
+                v: 5,
+                weight: 50,
+            },
+            Edge {
+                u: 3,
+                v: 5,
+                weight: 50,
+            },
+        ],
+    });
+
+    let matching = try_compute_weighted_matching(&graph).expect("weighted matching should compute");
+
+    assert!(matching.is_valid());
+    assert_eq!(matching.cardinality(), 3);
+
+    assert_eq!(matching.mate[0], Some(5));
+    assert_eq!(matching.mate[5], Some(0));
+
+    let total_weight = matching
+        .mate
+        .iter()
+        .enumerate()
+        .filter_map(|(u, &mate)| {
+            let v = mate?;
+            (u < v).then(|| graph.weight(u, v).unwrap())
+        })
+        .sum::<i32>();
+
+    assert_eq!(total_weight, 21);
+}
+
+#[test]
+fn computes_known_minimum_weight_matching_on_k4() {
+    let graph = EdmondsGraph::from_graph(&Graph {
+        nodes: vec![
+            Node {
+                id: 0,
+                x: 0.0,
+                y: 0.0,
+                z: None,
+            },
+            Node {
+                id: 1,
+                x: 0.0,
+                y: 0.0,
+                z: None,
+            },
+            Node {
+                id: 2,
+                x: 0.0,
+                y: 0.0,
+                z: None,
+            },
+            Node {
+                id: 3,
+                x: 0.0,
+                y: 0.0,
+                z: None,
+            },
+        ],
+        edges: vec![
+            Edge {
+                u: 0,
+                v: 1,
+                weight: 10,
+            },
+            Edge {
+                u: 2,
+                v: 3,
+                weight: 10,
+            },
+            Edge {
+                u: 0,
+                v: 2,
+                weight: 1,
+            },
+            Edge {
+                u: 1,
+                v: 3,
+                weight: 1,
+            },
+            Edge {
+                u: 0,
+                v: 3,
+                weight: 5,
+            },
+            Edge {
+                u: 1,
+                v: 2,
+                weight: 5,
+            },
+        ],
+    });
+
+    let matching = try_compute_weighted_matching(&graph).expect("weighted matching should compute");
+
+    assert!(matching.is_valid());
+    assert_eq!(matching.cardinality(), 2);
+    assert_eq!(matching_weight(&graph, &matching), 2);
+}
+
+#[test]
+fn weighted_matching_matches_brute_force_on_six_nodes() {
+    let graph = EdmondsGraph::from_graph(&Graph {
+        nodes: (0..6)
+            .map(|id| Node {
+                id,
+                x: 0.0,
+                y: 0.0,
+                z: None,
+            })
+            .collect(),
+        edges: vec![
+            Edge {
+                u: 0,
+                v: 1,
+                weight: 9,
+            },
+            Edge {
+                u: 0,
+                v: 2,
+                weight: 2,
+            },
+            Edge {
+                u: 0,
+                v: 3,
+                weight: 7,
+            },
+            Edge {
+                u: 0,
+                v: 4,
+                weight: 6,
+            },
+            Edge {
+                u: 0,
+                v: 5,
+                weight: 8,
+            },
+            Edge {
+                u: 1,
+                v: 2,
+                weight: 6,
+            },
+            Edge {
+                u: 1,
+                v: 3,
+                weight: 4,
+            },
+            Edge {
+                u: 1,
+                v: 4,
+                weight: 3,
+            },
+            Edge {
+                u: 1,
+                v: 5,
+                weight: 7,
+            },
+            Edge {
+                u: 2,
+                v: 3,
+                weight: 5,
+            },
+            Edge {
+                u: 2,
+                v: 4,
+                weight: 8,
+            },
+            Edge {
+                u: 2,
+                v: 5,
+                weight: 1,
+            },
+            Edge {
+                u: 3,
+                v: 4,
+                weight: 9,
+            },
+            Edge {
+                u: 3,
+                v: 5,
+                weight: 6,
+            },
+            Edge {
+                u: 4,
+                v: 5,
+                weight: 2,
+            },
+        ],
+    });
+
+    let matching = try_compute_weighted_matching(&graph).expect("weighted matching should compute");
+
+    let algorithm_weight = matching_weight(&graph, &matching);
+
+    let vertices = (0..6).collect::<Vec<_>>();
+    let brute_force_weight = brute_force_minimum_matching_weight(&graph, &vertices)
+        .expect("brute force should find a perfect matching");
+
+    assert!(matching.is_valid());
+    assert_eq!(matching.cardinality(), 3);
+    assert_eq!(algorithm_weight, brute_force_weight);
+}
+
+#[test]
+fn weighted_matching_matches_bruteforce_on_blossom_graph() {
+    let graph = EdmondsGraph::from_graph(&Graph {
+        nodes: (0..6)
+            .map(|id| Node {
+                id,
+                x: 0.0,
+                y: 0.0,
+                z: None,
+            })
+            .collect(),
+        edges: vec![
+            Edge {
+                u: 0,
+                v: 1,
+                weight: 8,
+            },
+            Edge {
+                u: 1,
+                v: 2,
+                weight: 8,
+            },
+            Edge {
+                u: 2,
+                v: 3,
+                weight: 8,
+            },
+            Edge {
+                u: 3,
+                v: 4,
+                weight: 8,
+            },
+            Edge {
+                u: 4,
+                v: 0,
+                weight: 8,
+            },
+            Edge {
+                u: 0,
+                v: 5,
+                weight: 1,
+            },
+            Edge {
+                u: 1,
+                v: 5,
+                weight: 20,
+            },
+            Edge {
+                u: 2,
+                v: 5,
+                weight: 30,
+            },
+            Edge {
+                u: 3,
+                v: 5,
+                weight: 20,
+            },
+            Edge {
+                u: 4,
+                v: 5,
+                weight: 30,
+            },
+        ],
+    });
+
+    let matching = try_compute_weighted_matching(&graph).expect("weighted matching should compute");
+
+    let algorithm_weight = matching_weight(&graph, &matching);
+
+    let vertices = (0..6).collect::<Vec<_>>();
+    let brute_force_weight = brute_force_minimum_matching_weight(&graph, &vertices)
+        .expect("brute force should find a perfect matching");
+
+    assert!(matching.is_valid());
+    assert_eq!(matching.cardinality(), 3);
+    assert_eq!(algorithm_weight, brute_force_weight);
+}
+
+#[test]
+fn weighted_matching_matches_bruteforce_on_dense_graph_b() {
+    let graph = EdmondsGraph::from_graph(&Graph {
+        nodes: (0..6)
+            .map(|id| Node {
+                id,
+                x: 0.0,
+                y: 0.0,
+                z: None,
+            })
+            .collect(),
+        edges: vec![
+            Edge {
+                u: 0,
+                v: 1,
+                weight: 4,
+            },
+            Edge {
+                u: 0,
+                v: 2,
+                weight: 9,
+            },
+            Edge {
+                u: 0,
+                v: 3,
+                weight: 3,
+            },
+            Edge {
+                u: 0,
+                v: 4,
+                weight: 8,
+            },
+            Edge {
+                u: 0,
+                v: 5,
+                weight: 7,
+            },
+            Edge {
+                u: 1,
+                v: 2,
+                weight: 2,
+            },
+            Edge {
+                u: 1,
+                v: 3,
+                weight: 6,
+            },
+            Edge {
+                u: 1,
+                v: 4,
+                weight: 5,
+            },
+            Edge {
+                u: 1,
+                v: 5,
+                weight: 9,
+            },
+            Edge {
+                u: 2,
+                v: 3,
+                weight: 7,
+            },
+            Edge {
+                u: 2,
+                v: 4,
+                weight: 4,
+            },
+            Edge {
+                u: 2,
+                v: 5,
+                weight: 6,
+            },
+            Edge {
+                u: 3,
+                v: 4,
+                weight: 1,
+            },
+            Edge {
+                u: 3,
+                v: 5,
+                weight: 8,
+            },
+            Edge {
+                u: 4,
+                v: 5,
+                weight: 3,
+            },
+        ],
+    });
+
+    let matching = try_compute_weighted_matching(&graph).expect("weighted matching should compute");
+
+    let vertices = (0..6).collect::<Vec<_>>();
+    let brute_force_weight = brute_force_minimum_matching_weight(&graph, &vertices)
+        .expect("brute force should find a perfect matching");
+
+    assert!(matching.is_valid());
+    assert_eq!(matching.cardinality(), 3);
+    assert_eq!(matching_weight(&graph, &matching), brute_force_weight);
+}
+
+#[test]
+fn weighted_matching_matches_bruteforce_on_sparse_graph() {
+    let graph = EdmondsGraph::from_graph(&Graph {
+        nodes: (0..6)
+            .map(|id| Node {
+                id,
+                x: 0.0,
+                y: 0.0,
+                z: None,
+            })
+            .collect(),
+        edges: vec![
+            Edge {
+                u: 0,
+                v: 1,
+                weight: 5,
+            },
+            Edge {
+                u: 0,
+                v: 2,
+                weight: 2,
+            },
+            Edge {
+                u: 1,
+                v: 3,
+                weight: 4,
+            },
+            Edge {
+                u: 2,
+                v: 5,
+                weight: 3,
+            },
+            Edge {
+                u: 3,
+                v: 4,
+                weight: 1,
+            },
+            Edge {
+                u: 4,
+                v: 5,
+                weight: 6,
+            },
+            Edge {
+                u: 1,
+                v: 2,
+                weight: 7,
+            },
+        ],
+    });
+
+    let matching = try_compute_weighted_matching(&graph).expect("weighted matching should compute");
+
+    let vertices = (0..6).collect::<Vec<_>>();
+    let brute_force_weight = brute_force_minimum_matching_weight(&graph, &vertices)
+        .expect("brute force should find a perfect matching");
+
+    assert!(matching.is_valid());
+    assert_eq!(matching.cardinality(), 3);
+    assert_eq!(matching_weight(&graph, &matching), brute_force_weight);
+}
+
+#[test]
+fn weighted_matching_matches_bruteforce_on_second_blossom_graph() {
+    let graph = EdmondsGraph::from_graph(&Graph {
+        nodes: (0..6)
+            .map(|id| Node {
+                id,
+                x: 0.0,
+                y: 0.0,
+                z: None,
+            })
+            .collect(),
+        edges: vec![
+            Edge {
+                u: 0,
+                v: 1,
+                weight: 6,
+            },
+            Edge {
+                u: 1,
+                v: 2,
+                weight: 6,
+            },
+            Edge {
+                u: 2,
+                v: 3,
+                weight: 6,
+            },
+            Edge {
+                u: 3,
+                v: 4,
+                weight: 6,
+            },
+            Edge {
+                u: 4,
+                v: 0,
+                weight: 6,
+            },
+            Edge {
+                u: 0,
+                v: 5,
+                weight: 2,
+            },
+            Edge {
+                u: 1,
+                v: 5,
+                weight: 9,
+            },
+            Edge {
+                u: 2,
+                v: 5,
+                weight: 8,
+            },
+            Edge {
+                u: 3,
+                v: 5,
+                weight: 3,
+            },
+            Edge {
+                u: 4,
+                v: 5,
+                weight: 10,
+            },
+        ],
+    });
+
+    let matching = try_compute_weighted_matching(&graph).expect("weighted matching should compute");
+
+    let vertices = (0..6).collect::<Vec<_>>();
+    let brute_force_weight = brute_force_minimum_matching_weight(&graph, &vertices)
+        .expect("brute force should find a perfect matching");
+
+    assert!(matching.is_valid());
+    assert_eq!(matching.cardinality(), 3);
+    assert_eq!(matching_weight(&graph, &matching), brute_force_weight);
+}
+
+#[test]
+fn converts_matching_state_to_edges() {
+    let graph = EdmondsGraph::from_graph(&Graph {
+        nodes: (0..4)
+            .map(|id| Node {
+                id,
+                x: 0.0,
+                y: 0.0,
+                z: None,
+            })
+            .collect(),
+        edges: vec![
+            Edge {
+                u: 0,
+                v: 1,
+                weight: 5,
+            },
+            Edge {
+                u: 2,
+                v: 3,
+                weight: 7,
+            },
+        ],
+    });
+
+    let mut matching = MatchingState::new(4);
+    matching.match_edge(0, 1);
+    matching.match_edge(2, 3);
+
+    let edges = matching_to_edges(&graph, &matching).expect("matching should convert");
+
+    assert_eq!(edges.len(), 2);
+    assert!(edges.contains(&Edge {
+        u: 0,
+        v: 1,
+        weight: 5
+    }));
+    assert!(edges.contains(&Edge {
+        u: 2,
+        v: 3,
+        weight: 7
+    }));
 }
