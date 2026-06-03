@@ -48,13 +48,9 @@ struct ShrunkGraph {
 #[derive(Debug, Clone)]
 struct EdmondsGraph {
     adjacency: Vec<Vec<usize>>,
+    weights: HashMap<(usize, usize), i32>,
     index_to_node_id: Vec<usize>,
     node_id_to_index: HashMap<usize, usize>,
-}
-
-#[derive(Debug, Clone)]
-struct ExpandedPath {
-    vertices: Vec<usize>,
 }
 
 impl MatchingState {
@@ -126,6 +122,45 @@ impl MatchingState {
                 self.match_edge(u, v);
             }
         }
+    }
+
+    /// Checks if the current matching state is valid by ensuring that all matched vertices are properly paired
+    /// and that no vertex is matched to itself.
+    ///
+    /// # Returns
+    /// * `true` if the matching state is valid, `false` otherwise.
+    fn is_valid(&self) -> bool {
+        for (u, mate) in self.mate.iter().enumerate() {
+            let Some(v) = mate else {
+                continue;
+            };
+
+            if *v == u {
+                return false;
+            }
+
+            if *v >= self.mate.len() {
+                return false;
+            }
+
+            if self.mate[*v] != Some(u) {
+                return false;
+            }
+        }
+
+        true
+    }
+
+    /// Returns the cardinality of the matching, which is the number of matched edges in the current matching state.
+    ///
+    /// # Returns
+    /// * `usize` representing the number of matched edges in the current matching state.
+    fn cardinality(&self) -> usize {
+        self.mate
+            .iter()
+            .enumerate()
+            .filter(|(u, mate)| mate.is_some_and(|v| *u < v))
+            .count()
     }
 }
 
@@ -231,6 +266,7 @@ impl EdmondsGraph {
             .collect::<HashMap<_, _>>();
 
         let mut adjacency = vec![Vec::new(); graph.nodes.len()];
+        let mut weights = HashMap::new();
 
         for edge in &graph.edges {
             let Some(&u) = node_id_to_index.get(&edge.u) else {
@@ -248,11 +284,14 @@ impl EdmondsGraph {
             if !adjacency[v].contains(&u) {
                 adjacency[v].push(u);
             }
+
+            weights.insert(edge_key(u, v), edge.weight);
         }
 
         Self {
             adjacency,
             index_to_node_id,
+            weights,
             node_id_to_index,
         }
     }
@@ -266,6 +305,18 @@ impl EdmondsGraph {
     /// * `impl Iterator<Item = usize>` - An iterator over the indices of the neighboring vertices.
     fn neighbors(&self, node: usize) -> impl Iterator<Item = usize> + '_ {
         self.adjacency[node].iter().copied()
+    }
+
+    /// Returns the weight of the edge between two given vertices `u` and `v` if it exists in the graph.
+    ///
+    /// # Arguments
+    /// * `u` - The index of the first vertex.
+    /// * `v` - The index of the second vertex.
+    ///
+    /// # Returns
+    /// * `Option<i32>` - The weight of the edge between `u` and `v` if it exists, or `None` if no such edge exists in the graph.
+    fn weight(&self, u: usize, v: usize) -> Option<i32> {
+        self.weights.get(&edge_key(u, v)).copied()
     }
 }
 
@@ -503,6 +554,7 @@ fn shrink_graph(graph: &EdmondsGraph, blossom: &Blossom) -> ShrunkGraph {
     shrunk_to_original.push(None);
 
     let mut adjacency = vec![Vec::new(); shrunk_to_original.len()];
+    let mut weights: HashMap<(usize, usize), i32> = HashMap::new();
 
     // Iterate over the edges in the original graph and add corresponding edges to the shrunk graph,
     // ensuring that edges within the blossom are not included in the shrunk graph.
@@ -524,6 +576,25 @@ fn shrink_graph(graph: &EdmondsGraph, blossom: &Blossom) -> ShrunkGraph {
             if !adjacency[sv].contains(&su) {
                 adjacency[sv].push(su);
             }
+
+            let Some(weight) = graph.weight(u, v) else {
+                continue;
+            };
+
+            let key = edge_key(su, sv);
+
+            match weights.get_mut(&key) {
+                // If an edge between `su` and `sv` already exists in the shrunk graph,
+                // update its weight to be the minimum of the existing weight and the new weight.
+                Some(existing) => {
+                    *existing = (*existing).min(weight);
+                }
+                // If no edge between `su` and `sv` exists in the shrunk graph, add a new entry to the weights map
+                // with the weight of the edge from the original graph.
+                None => {
+                    weights.insert(key, weight);
+                }
+            }
         }
     }
 
@@ -537,6 +608,7 @@ fn shrink_graph(graph: &EdmondsGraph, blossom: &Blossom) -> ShrunkGraph {
 
     let graph = EdmondsGraph {
         adjacency,
+        weights,
         index_to_node_id,
         node_id_to_index,
     };
@@ -914,6 +986,18 @@ fn try_compute_maximum_matching(graph: &EdmondsGraph) -> Result<MatchingState, M
     }
 
     Ok(matching)
+}
+
+/// Helper function to create a consistent key for an edge between two vertices, regardless of their order.
+///
+/// # Arguments
+/// * `u` - The index of the first vertex.
+/// * `v` - The index of the second vertex.
+///
+/// # Returns
+/// * `(usize, usize)` - A tuple representing the edge between the two vertices, with the smaller index first to ensure consistency.
+fn edge_key(u: usize, v: usize) -> (usize, usize) {
+    if u < v { (u, v) } else { (v, u) }
 }
 
 #[cfg(test)]
@@ -1360,5 +1444,121 @@ mod tests {
             .count();
 
         assert_eq!(matched_edges, 2);
+    }
+
+    #[test]
+    fn validates_matching_state() {
+        let mut matching = MatchingState::new(4);
+
+        matching.match_edge(0, 1);
+        matching.match_edge(2, 3);
+
+        assert!(matching.is_valid());
+    }
+
+    #[test]
+    fn matching_cardinality() {
+        let mut matching = MatchingState::new(6);
+
+        matching.match_edge(0, 1);
+        matching.match_edge(2, 3);
+        matching.match_edge(4, 5);
+
+        assert_eq!(matching.cardinality(), 3);
+    }
+
+    #[test]
+    fn computes_maximum_matching_on_cycle() {
+        let graph = test_graph(vec![vec![1, 2], vec![0, 3], vec![0, 3], vec![1, 2]]);
+
+        let matching = try_compute_maximum_matching(&graph).expect("matching should compute");
+
+        assert!(matching.is_valid());
+        assert_eq!(matching.cardinality(), 2);
+    }
+
+    #[test]
+    fn computes_maximum_matching_on_odd_cycle() {
+        let graph = test_graph(vec![
+            vec![1, 4],
+            vec![0, 2],
+            vec![1, 3],
+            vec![2, 4],
+            vec![3, 0],
+        ]);
+
+        let matching = try_compute_maximum_matching(&graph).expect("matching should compute");
+
+        assert!(matching.is_valid());
+        assert_eq!(matching.cardinality(), 2);
+    }
+
+    #[test]
+    fn shrink_graph_preserves_minimum_external_edge_weight() {
+        let nodes = (0..6)
+            .map(|id| Node {
+                id,
+                x: 0.0,
+                y: 0.0,
+                z: None,
+            })
+            .collect::<Vec<_>>();
+
+        let edges = vec![
+            // blossom cycle
+            Edge {
+                u: 0,
+                v: 1,
+                weight: 1,
+            },
+            Edge {
+                u: 1,
+                v: 2,
+                weight: 1,
+            },
+            Edge {
+                u: 2,
+                v: 4,
+                weight: 1,
+            },
+            Edge {
+                u: 4,
+                v: 3,
+                weight: 1,
+            },
+            Edge {
+                u: 3,
+                v: 0,
+                weight: 1,
+            },
+            // external edges to node 5
+            Edge {
+                u: 0,
+                v: 5,
+                weight: 30,
+            },
+            Edge {
+                u: 1,
+                v: 5,
+                weight: 10,
+            },
+            Edge {
+                u: 2,
+                v: 5,
+                weight: 20,
+            },
+        ];
+
+        let graph = EdmondsGraph::from_graph(&Graph { nodes, edges });
+
+        let blossom = Blossom::new(0, vec![2, 1, 0, 3, 4]);
+        let shrunk = shrink_graph(&graph, &blossom);
+
+        let external_5 = shrunk.original_to_shrunk[5];
+
+        assert_eq!(
+            shrunk.graph.weight(shrunk.blossom_node, external_5),
+            Some(10)
+        );
     }
 }
