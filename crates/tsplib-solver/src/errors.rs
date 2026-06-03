@@ -91,6 +91,9 @@ pub enum MatcherError {
     InvalidNodeIndex(usize, usize),
     #[error("Edge ({0}, {1}) does not exist in graph.")]
     MissingEdge(usize, usize),
+
+    #[error("Blossom expansion is not implemented in this matcher.")]
+    BlossomExpansionNotImplemented,
 }
 
 impl From<InstanceError> for SolverError {

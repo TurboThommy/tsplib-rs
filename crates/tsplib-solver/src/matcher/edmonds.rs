@@ -12,7 +12,7 @@ enum Label {
     Unlabeled,
 }
 
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq, Clone)]
 enum SearchResult {
     AugmentingPath(Vec<usize>),
     Blossom {
@@ -56,6 +56,18 @@ struct EdmondsGraph {
 #[derive(Debug, Clone)]
 struct DualState {
     vertex_duals: Vec<i64>,
+}
+
+#[derive(Debug, Clone)]
+struct AlternatingTree {
+    label: Vec<Label>,
+    parent: Vec<Option<usize>>,
+}
+
+#[derive(Debug, Clone)]
+struct TreeSearchResult {
+    tree: AlternatingTree,
+    result: SearchResult,
 }
 
 impl MatchingState {
@@ -467,6 +479,24 @@ impl DualState {
         // The slack of an edge is calculated as the weight of the edge minus the sum of the dual values of its endpoints.
         // Scale it by 2 to avoid dealing with fractions, since the dual values can be half-integers in the context of the blossom algorithm.
         Ok(2 * i64::from(weight) - self.try_get(u)? - self.try_get(v)?)
+    }
+}
+
+impl AlternatingTree {
+    fn even_vertices(&self) -> Vec<usize> {
+        self.label
+            .iter()
+            .enumerate()
+            .filter_map(|(node, label)| (*label == Label::Even).then_some(node))
+            .collect()
+    }
+
+    fn odd_vertices(&self) -> Vec<usize> {
+        self.label
+            .iter()
+            .enumerate()
+            .filter_map(|(node, label)| (*label == Label::Odd).then_some(node))
+            .collect()
     }
 }
 
@@ -1170,7 +1200,7 @@ fn search_tight_alternating_tree(
     duals: &DualState,
     matching: &MatchingState,
     root: usize,
-) -> Result<SearchResult, MatcherError> {
+) -> Result<TreeSearchResult, MatcherError> {
     let node_count = graph.adjacency.len();
 
     let mut label = vec![Label::Unlabeled; node_count];
@@ -1191,9 +1221,12 @@ fn search_tight_alternating_tree(
                     parent[v] = Some(u);
 
                     if matching.is_exposed(v) {
-                        return Ok(SearchResult::AugmentingPath(try_reconstruct_path(
-                            root, v, &parent,
-                        )?));
+                        let path = try_reconstruct_path(root, v, &parent)?;
+
+                        return Ok(TreeSearchResult {
+                            tree: AlternatingTree { label, parent },
+                            result: SearchResult::AugmentingPath(path),
+                        });
                     }
 
                     let mate = matching
@@ -1221,10 +1254,13 @@ fn search_tight_alternating_tree(
                     if let Some(lca) = find_lca(u, v, &parent) {
                         let cycle = try_reconstruct_blossom_cycle(u, v, lca, &parent)?;
 
-                        return Ok(SearchResult::Blossom {
-                            cycle,
-                            base: lca,
-                            edge: (u, v),
+                        return Ok(TreeSearchResult {
+                            tree: AlternatingTree { label, parent },
+                            result: SearchResult::Blossom {
+                                cycle,
+                                base: lca,
+                                edge: (u, v),
+                            },
                         });
                     }
                 }
@@ -1234,7 +1270,10 @@ fn search_tight_alternating_tree(
         }
     }
 
-    Ok(SearchResult::None)
+    Ok(TreeSearchResult {
+        tree: AlternatingTree { label, parent },
+        result: SearchResult::None,
+    })
 }
 
 /// Attempts to initialize the dual variables for the vertices in the graph based on the minimum edge weights,
@@ -1266,6 +1305,177 @@ fn try_initialize_duals(graph: &EdmondsGraph) -> Result<DualState, MatcherError>
     }
 
     Ok(duals)
+}
+
+/// Attempts to compute the minimum outgoing slack from the vertices labeled as even in the alternating tree,
+/// which is necessary for determining how much to adjust the dual variables during the execution of Edmonds' algorithm,
+/// and returns an error if any issues occur while computing the slack, such as invalid node indices or missing edge weights.
+///
+/// # Arguments
+/// * `tree` - A reference to the `AlternatingTree` struct representing the current state of the alternating tree during the search for augmenting paths.
+/// * `graph` - A reference to the graph represented as an `EdmondsGraph` for which to compute the minimum outgoing slack.
+/// * `duals` - A reference to the current state of the dual variables for the vertices in the graph,
+///   which is used to compute the slack for the edges during the search for augmenting paths.
+///
+/// # Returns
+/// * `Result<i64, MatcherError>` - The minimum outgoing slack from the even-labeled vertices in the alternating tree,
+///   or an error if any issues occur while computing the slack, such as invalid node indices or missing edge weights.
+fn try_minimum_outgoing_slack(
+    tree: &AlternatingTree,
+    graph: &EdmondsGraph,
+    duals: &DualState,
+) -> Result<i64, MatcherError> {
+    let mut minimum = i64::MAX;
+
+    for u in tree.even_vertices() {
+        for v in graph.neighbors(u) {
+            match tree.label[v] {
+                Label::Unlabeled => {
+                    let slack = duals.try_slack(graph, u, v)?;
+
+                    minimum = minimum.min(slack);
+                }
+
+                Label::Even | Label::Odd => {}
+            }
+        }
+    }
+
+    Ok(minimum)
+}
+
+/// Attempts to update the dual variables for the vertices in the alternating tree by adding a given delta to the even-labeled vertices
+/// and subtracting the same delta from the odd-labeled vertices, which is necessary for maintaining the feasibility of the dual
+/// variables during the execution of Edmonds' algorithm.
+///
+/// # Arguments
+/// * `tree` - A reference to the `AlternatingTree` struct representing the current state of the alternating tree during the search for augmenting paths.
+/// * `duals` - A mutable reference to the current state of the dual variables for the vertices in the graph,
+///   which will be updated based on the labels of the vertices in the alternating tree.
+/// * `delta` - The value to be added to the even-labeled vertices and subtracted from the odd-labeled vertices in the alternating
+///   tree to maintain the feasibility of the dual variables during the execution of Edmonds' algorithm.
+///
+/// # Returns
+/// * `Result<(), MatcherError>` - An empty result indicating that the dual variables were successfully updated, or an error if any issues occur while updating the dual variables, such as invalid node indices or attempts to set dual variables to invalid values.
+fn try_update_duals(
+    tree: &AlternatingTree,
+    duals: &mut DualState,
+    delta: i64,
+) -> Result<(), MatcherError> {
+    for node in tree.even_vertices() {
+        duals.try_add(node, delta)?;
+    }
+
+    for node in tree.odd_vertices() {
+        duals.try_add(node, -delta)?;
+    }
+
+    Ok(())
+}
+
+/// Builds a tight alternating tree starting from the given root vertex by performing a breadth-first search,
+/// labeling vertices as even or odd based on their distance from the root, and returning the resulting
+/// `AlternatingTree` struct containing the labels and parent pointers for the vertices in the tree,
+/// or an error if any issues occur during the construction of the tree, such as missing mates or invalid node indices.
+///
+/// # Arguments
+/// * `graph` - A reference to the graph represented as an `EdmondsGraph` for which to build the tight alternating tree.
+/// * `duals` - A reference to the current state of the dual variables for the vertices in the graph,
+///   which is used to determine tight edges during the construction of the tree.
+/// * `matching` - A reference to the current state of the matching, which is used to determine the mates of vertices during the construction of the tree.
+/// * `root` - The index of the root vertex from which to start building the tight alternating tree.
+///
+/// # Returns
+/// * `Result<AlternatingTree, MatcherError>` - The resulting `AlternatingTree` struct containing the labels and parent pointers
+///   for the vertices in the tree, or an error if any issues occur during the construction of the tree, such as missing mates or invalid node indices.
+fn build_tight_alternating_tree(
+    graph: &EdmondsGraph,
+    duals: &DualState,
+    matching: &MatchingState,
+    root: usize,
+) -> Result<AlternatingTree, MatcherError> {
+    let node_count = graph.adjacency.len();
+
+    let mut label = vec![Label::Unlabeled; node_count];
+    let mut parent: Vec<Option<usize>> = vec![None; node_count];
+    let mut queue = VecDeque::new();
+
+    label[root] = Label::Even;
+    queue.push_back(root);
+
+    while let Some(u) = queue.pop_front() {
+        for v in graph.try_tight_neighbors(duals, u)? {
+            match label[v] {
+                Label::Unlabeled => {
+                    parent[v] = Some(u);
+
+                    if matching.is_exposed(v) {
+                        return Ok(AlternatingTree { label, parent });
+                    }
+
+                    let mate = matching
+                        .mate
+                        .get(v)
+                        .copied()
+                        .flatten()
+                        .ok_or(MatcherError::MissingMate(v))?;
+
+                    label[v] = Label::Odd;
+                    label[mate] = Label::Even;
+                    parent[mate] = Some(v);
+                    queue.push_back(mate);
+                }
+
+                Label::Even => {}
+
+                Label::Odd => {}
+            }
+        }
+    }
+
+    Ok(AlternatingTree { label, parent })
+}
+
+/// Attempts to find a weighted augmenting path in the graph using Edmonds' algorithm by repeatedly searching for tight alternating trees,
+/// computing the minimum outgoing slack, and updating the dual variables until an augmenting path is found or it is determined that
+/// no augmenting path exists, and returns an error if any issues occur during the search process, such as missing mates or invalid node indices.
+///
+/// # Arguments
+/// * `graph` - A reference to the graph represented as an `EdmondsGraph` for which to find a weighted augmenting path.
+/// * `duals` - A mutable reference to the current state of the dual variables for the vertices in the graph,
+///   which will be updated during the search for a weighted augmenting path.
+/// * `matching` - A reference to the current state of the matching, which is used to determine the mates
+///   of vertices during the search for a weighted augmenting path.
+/// * `root` - The index of the root vertex from which to start the search for a weighted augmenting path.
+///
+/// # Returns
+/// * `Result<Option<Vec<usize>>, MatcherError>` - An optional vector of vertex indices representing the weighted augmenting path found,
+///   or `None` if no augmenting path exists, or an error if any issues occur during the search process, such as missing mates or invalid node indices.
+fn try_find_weighted_augmenting_path(
+    graph: &EdmondsGraph,
+    duals: &mut DualState,
+    matching: &MatchingState,
+    root: usize,
+) -> Result<Option<Vec<usize>>, MatcherError> {
+    loop {
+        let search = search_tight_alternating_tree(graph, duals, matching, root)?;
+
+        match search.result {
+            SearchResult::AugmentingPath(path) => return Ok(Some(path)),
+            SearchResult::Blossom { .. } => {
+                return Err(MatcherError::BlossomExpansionNotImplemented);
+            }
+            SearchResult::None => {
+                let tree = build_tight_alternating_tree(graph, duals, matching, root)?;
+                let delta = try_minimum_outgoing_slack(&tree, graph, duals)?;
+                if delta == i64::MAX {
+                    return Ok(None);
+                }
+
+                try_update_duals(&tree, duals, delta)?;
+            }
+        }
+    }
 }
 
 #[cfg(test)]

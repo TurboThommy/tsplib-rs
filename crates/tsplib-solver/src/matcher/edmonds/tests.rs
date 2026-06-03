@@ -799,10 +799,10 @@ fn tight_search_ignores_non_tight_edges() {
 
     let matching = MatchingState::new(3);
 
-    let result =
+    let search =
         search_tight_alternating_tree(&graph, &duals, &matching, 0).expect("search should succeed");
 
-    assert_eq!(result, SearchResult::AugmentingPath(vec![0, 1]));
+    assert_eq!(search.result, SearchResult::AugmentingPath(vec![0, 1]));
 }
 
 #[test]
@@ -900,4 +900,234 @@ fn initialized_duals_produce_non_negative_slack() {
             assert!(slack >= 0, "negative slack on edge ({u}, {v}): {slack}");
         }
     }
+}
+
+#[test]
+fn alternating_tree_returns_even_vertices() {
+    let tree = AlternatingTree {
+        label: vec![Label::Even, Label::Odd, Label::Even, Label::Unlabeled],
+        parent: vec![None; 4],
+    };
+
+    assert_eq!(tree.even_vertices(), vec![0, 2]);
+}
+
+#[test]
+fn alternating_tree_returns_odd_vertices() {
+    let tree = AlternatingTree {
+        label: vec![Label::Even, Label::Odd, Label::Even, Label::Odd],
+        parent: vec![None; 4],
+    };
+
+    assert_eq!(tree.odd_vertices(), vec![1, 3]);
+}
+
+#[test]
+fn finds_minimum_outgoing_slack() {
+    let graph = EdmondsGraph::from_graph(&Graph {
+        nodes: vec![
+            Node {
+                id: 0,
+                x: 0.0,
+                y: 0.0,
+                z: None,
+            },
+            Node {
+                id: 1,
+                x: 0.0,
+                y: 0.0,
+                z: None,
+            },
+            Node {
+                id: 2,
+                x: 0.0,
+                y: 0.0,
+                z: None,
+            },
+        ],
+        edges: vec![
+            Edge {
+                u: 0,
+                v: 1,
+                weight: 10,
+            },
+            Edge {
+                u: 0,
+                v: 2,
+                weight: 7,
+            },
+        ],
+    });
+
+    let mut duals = DualState::new(3);
+
+    duals.try_set(0, 8).unwrap();
+    duals.try_set(1, 10).unwrap();
+    duals.try_set(2, 1).unwrap();
+
+    let tree = AlternatingTree {
+        label: vec![Label::Even, Label::Unlabeled, Label::Unlabeled],
+        parent: vec![None; 3],
+    };
+
+    let delta = try_minimum_outgoing_slack(&tree, &graph, &duals).expect("delta should compute");
+
+    // slack(0,1)=20-8-10 = 2
+    // slack(0,2)=14-8-1 = 5
+
+    assert_eq!(delta, 2);
+}
+
+#[test]
+fn updates_duals_using_tree_labels() {
+    let mut duals = DualState::new(4);
+
+    duals.try_set(0, 10).unwrap();
+    duals.try_set(1, 20).unwrap();
+    duals.try_set(2, 30).unwrap();
+    duals.try_set(3, 40).unwrap();
+
+    let tree = AlternatingTree {
+        label: vec![Label::Even, Label::Odd, Label::Unlabeled, Label::Even],
+        parent: vec![None; 4],
+    };
+
+    try_update_duals(&tree, &mut duals, 5).expect("dual update should succeed");
+
+    assert_eq!(duals.try_get(0).unwrap(), 15);
+    assert_eq!(duals.try_get(1).unwrap(), 15);
+    assert_eq!(duals.try_get(2).unwrap(), 30);
+    assert_eq!(duals.try_get(3).unwrap(), 45);
+}
+
+#[test]
+fn dual_update_creates_new_tight_edge() {
+    let graph = EdmondsGraph::from_graph(&Graph {
+        nodes: vec![
+            Node {
+                id: 0,
+                x: 0.0,
+                y: 0.0,
+                z: None,
+            },
+            Node {
+                id: 1,
+                x: 0.0,
+                y: 0.0,
+                z: None,
+            },
+        ],
+        edges: vec![Edge {
+            u: 0,
+            v: 1,
+            weight: 10,
+        }],
+    });
+
+    let mut duals = DualState::new(2);
+
+    duals.try_set(0, 8).unwrap();
+    duals.try_set(1, 10).unwrap();
+
+    let tree = AlternatingTree {
+        label: vec![Label::Even, Label::Unlabeled],
+        parent: vec![None; 2],
+    };
+
+    try_update_duals(&tree, &mut duals, 2).expect("dual update should succeed");
+
+    assert!(graph.try_is_tight(&duals, 0, 1).unwrap());
+}
+
+#[test]
+fn dual_update_makes_neighbor_tight() {
+    let graph = EdmondsGraph::from_graph(&Graph {
+        nodes: vec![
+            Node {
+                id: 0,
+                x: 0.0,
+                y: 0.0,
+                z: None,
+            },
+            Node {
+                id: 1,
+                x: 0.0,
+                y: 0.0,
+                z: None,
+            },
+        ],
+        edges: vec![Edge {
+            u: 0,
+            v: 1,
+            weight: 10,
+        }],
+    });
+
+    let mut duals = DualState::new(2);
+
+    duals.try_set(0, 8).unwrap();
+    duals.try_set(1, 10).unwrap();
+
+    assert_eq!(
+        graph
+            .try_tight_neighbors(&duals, 0)
+            .expect("tight neighbors should compute"),
+        Vec::<usize>::new()
+    );
+
+    let tree = AlternatingTree {
+        label: vec![Label::Even, Label::Unlabeled],
+        parent: vec![None; 2],
+    };
+
+    let delta = try_minimum_outgoing_slack(&tree, &graph, &duals).expect("delta should compute");
+
+    assert_eq!(delta, 2);
+
+    try_update_duals(&tree, &mut duals, delta).expect("dual update should succeed");
+
+    assert_eq!(
+        graph
+            .try_tight_neighbors(&duals, 0)
+            .expect("tight neighbors should compute"),
+        vec![1]
+    );
+}
+
+#[test]
+fn weighted_search_updates_duals_until_path_becomes_tight() {
+    let graph = EdmondsGraph::from_graph(&Graph {
+        nodes: vec![
+            Node {
+                id: 0,
+                x: 0.0,
+                y: 0.0,
+                z: None,
+            },
+            Node {
+                id: 1,
+                x: 0.0,
+                y: 0.0,
+                z: None,
+            },
+        ],
+        edges: vec![Edge {
+            u: 0,
+            v: 1,
+            weight: 10,
+        }],
+    });
+
+    let mut duals = DualState::new(2);
+    duals.try_set(0, 8).unwrap();
+    duals.try_set(1, 10).unwrap();
+
+    let matching = MatchingState::new(2);
+
+    let path = try_find_weighted_augmenting_path(&graph, &mut duals, &matching, 0)
+        .expect("weighted search should succeed")
+        .expect("augmenting path should exist");
+
+    assert_eq!(path, vec![0, 1]);
+    assert!(graph.try_is_tight(&duals, 0, 1).unwrap());
 }
