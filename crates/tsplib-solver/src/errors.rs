@@ -74,6 +74,9 @@ pub enum MatcherError {
         "Node {0} is not connected to its least common ancestor {1} during path reconstruction."
     )]
     NodeNotConnectedToLca(usize, usize),
+
+    #[error("Blossom expansion is not implemented yet")]
+    BlossomExpansionNotImplemented,
 }
 
 impl From<InstanceError> for SolverError {

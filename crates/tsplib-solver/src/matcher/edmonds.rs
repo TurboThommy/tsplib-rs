@@ -1,5 +1,7 @@
 //! This module implements the Edmonds' Blossom algorithm for finding a minimum weight perfect matching in a graph.
-use std::collections::{HashSet, VecDeque};
+use std::collections::{HashMap, HashSet, VecDeque};
+
+use tsplib_core::models::Graph;
 
 use crate::errors::MatcherError;
 
@@ -37,9 +39,17 @@ struct MatchingState {
 
 #[derive(Debug, Clone)]
 struct ShrunkGraph {
-    graph: Vec<Vec<usize>>,
+    graph: EdmondsGraph,
     blossom_node: usize,
     original_to_shrunk: Vec<usize>,
+    shrunk_to_original: Vec<Option<usize>>,
+}
+
+#[derive(Debug, Clone)]
+struct EdmondsGraph {
+    adjacency: Vec<Vec<usize>>,
+    index_to_node_id: Vec<usize>,
+    node_id_to_index: HashMap<usize, usize>,
 }
 
 impl MatchingState {
@@ -136,16 +146,53 @@ impl Blossom {
     }
 }
 
-/// Creates an iterator over the neighbors of a given node in the graph.
-///
-/// # Arguments
-/// * `graph` - A reference to the adjacency list representation of the graph.
-/// * `node` - The index of the node whose neighbors are to be returned.
-///
-/// # Returns
-/// * `impl Iterator<Item = usize>` - An iterator over the indices of the neighboring vertices.
-fn neighbors(graph: &[Vec<usize>], node: usize) -> impl Iterator<Item = usize> + '_ {
-    graph[node].iter().copied()
+impl EdmondsGraph {
+    fn from_graph(graph: &Graph) -> Self {
+        let index_to_node_id = graph.nodes.iter().map(|node| node.id).collect::<Vec<_>>();
+
+        let node_id_to_index = index_to_node_id
+            .iter()
+            .enumerate()
+            .map(|(index, &node_id)| (node_id, index))
+            .collect::<HashMap<_, _>>();
+
+        let mut adjacency = vec![Vec::new(); graph.nodes.len()];
+
+        for edge in &graph.edges {
+            let Some(&u) = node_id_to_index.get(&edge.u) else {
+                continue;
+            };
+
+            let Some(&v) = node_id_to_index.get(&edge.v) else {
+                continue;
+            };
+
+            if !adjacency[u].contains(&v) {
+                adjacency[u].push(v);
+            }
+
+            if !adjacency[v].contains(&u) {
+                adjacency[v].push(u);
+            }
+        }
+
+        Self {
+            adjacency,
+            index_to_node_id,
+            node_id_to_index,
+        }
+    }
+
+    /// Creates an iterator over the neighbors of a given node in the graph.
+    ///
+    /// # Arguments
+    /// * `node` - The index of the node whose neighbors are to be returned.
+    ///
+    /// # Returns
+    /// * `impl Iterator<Item = usize>` - An iterator over the indices of the neighboring vertices.
+    fn neighbors(&self, node: usize) -> impl Iterator<Item = usize> + '_ {
+        self.adjacency[node].iter().copied()
+    }
 }
 
 /// Reconstructs the path from the root to the target vertex using the parent pointers.
@@ -183,7 +230,7 @@ fn try_reconstruct_path(
 /// Searches for an augmenting path in the graph starting from the given root vertex using a breadth-first search approach.
 ///
 /// # Arguments
-/// * `graph` - A reference to the adjacency list representation of the graph.
+/// * `graph` - A reference to the graph represented as an `EdmondsGraph`.
 /// * `matching` - A reference to the current state of the matching.
 /// * `root` - The index of the root vertex from which to start the search for an augmenting path.
 ///
@@ -191,11 +238,11 @@ fn try_reconstruct_path(
 /// * `Option<Vec<usize>>` - An optional vector of vertex indices representing the augmenting path found.
 ///   If no augmenting path exists, returns `None`.
 fn search_alternating_tree(
-    graph: &[Vec<usize>],
+    graph: &EdmondsGraph,
     matching: &MatchingState,
     root: usize,
 ) -> Result<SearchResult, MatcherError> {
-    let node_count = graph.len();
+    let node_count = graph.adjacency.len();
 
     // Initialize the label and parent vectors for the breadth-first search.
     let mut label = vec![Label::Unlabeled; node_count];
@@ -208,7 +255,7 @@ fn search_alternating_tree(
 
     // Perform a breadth-first search to find an augmenting path.
     while let Some(u) = queue.pop_front() {
-        for v in neighbors(graph, u) {
+        for v in graph.neighbors(u) {
             match label[v] {
                 Label::Unlabeled => {
                     parent[v] = Some(u);
@@ -348,34 +395,45 @@ fn try_reconstruct_blossom_cycle(
 /// Shrinks the graph by contracting the blossom into a single vertex, creating a new graph representation that reflects the contraction.
 ///
 /// # Arguments
-/// * `graph` - A reference to the adjacency list representation of the original graph.
+/// * `graph` - A reference to the original graph.
 /// * `blossom` - A reference to the `Blossom` struct representing the blossom to be contracted.
 ///
 /// # Returns
 /// * `ShrunkGraph` - A struct containing the new graph representation after shrinking the blossom,
 ///   the index of the new vertex representing the blossom,and a mapping from original vertices to
 ///   their corresponding vertices in the shrunk graph.
-fn shrink_graph(graph: &[Vec<usize>], blossom: &Blossom) -> ShrunkGraph {
-    let blossom_node = graph.len();
+fn shrink_graph(graph: &EdmondsGraph, blossom: &Blossom) -> ShrunkGraph {
+    let node_count = graph.adjacency.len();
 
-    let mut original_to_shrunk = Vec::with_capacity(graph.len());
+    let mut original_to_shrunk = vec![usize::MAX; node_count];
+    let mut shrunk_to_original = Vec::new();
 
-    // Map original vertices to their corresponding vertices in the shrunk graph,
-    // with blossom vertices mapped to the new blossom node.
-    for node in 0..graph.len() {
+    // map all non-blossom nodes to compact shrunk indices
+    for node in 0..node_count {
         if blossom.contains(node) {
-            original_to_shrunk.push(blossom_node);
-        } else {
-            original_to_shrunk.push(node);
+            continue;
         }
+
+        let shrunk_node = shrunk_to_original.len();
+        original_to_shrunk[node] = shrunk_node;
+        shrunk_to_original.push(Some(node));
     }
 
-    let mut shrunk_graph = vec![Vec::new(); graph.len() + 1];
+    // one compact pseudonode for the blossom
+    let blossom_node = shrunk_to_original.len();
 
-    // Build the adjacency list for the shrunk graph by iterating over the edges of the original graph
-    // and mapping the vertices to their corresponding vertices in the shrunk graph.
-    for u in 0..graph.len() {
-        for &v in &graph[u] {
+    for &node in &blossom.cycle {
+        original_to_shrunk[node] = blossom_node;
+    }
+
+    shrunk_to_original.push(None);
+
+    let mut adjacency = vec![Vec::new(); shrunk_to_original.len()];
+
+    // Iterate over the edges in the original graph and add corresponding edges to the shrunk graph,
+    // ensuring that edges within the blossom are not included in the shrunk graph.
+    for u in 0..node_count {
+        for v in graph.neighbors(u) {
             // Map the original vertices `u` and `v` to their corresponding vertices in the shrunk graph.
             let su = original_to_shrunk[u];
             let sv = original_to_shrunk[v];
@@ -385,20 +443,35 @@ fn shrink_graph(graph: &[Vec<usize>], blossom: &Blossom) -> ShrunkGraph {
             }
 
             // Add edges to the shrunk graph, ensuring that duplicate edges are not added.
-            if !shrunk_graph[su].contains(&sv) {
-                shrunk_graph[su].push(sv);
+            if !adjacency[su].contains(&sv) {
+                adjacency[su].push(sv);
             }
 
-            if !shrunk_graph[sv].contains(&su) {
-                shrunk_graph[sv].push(su);
+            if !adjacency[sv].contains(&su) {
+                adjacency[sv].push(su);
             }
         }
     }
 
+    let index_to_node_id = (0..adjacency.len()).collect::<Vec<_>>();
+
+    let node_id_to_index = index_to_node_id
+        .iter()
+        .enumerate()
+        .map(|(index, &node_id)| (node_id, index))
+        .collect::<HashMap<_, _>>();
+
+    let graph = EdmondsGraph {
+        adjacency,
+        index_to_node_id,
+        node_id_to_index,
+    };
+
     ShrunkGraph {
-        graph: shrunk_graph,
+        graph,
         blossom_node,
         original_to_shrunk,
+        shrunk_to_original,
     }
 }
 
@@ -414,7 +487,7 @@ fn shrink_graph(graph: &[Vec<usize>], blossom: &Blossom) -> ShrunkGraph {
 /// * `MatchingState` - A new `MatchingState` representing the matching in the shrunk graph,
 ///   with edges mapped from the original graph and edges within the blossom excluded.
 fn shrink_matching(matching: &MatchingState, shrunk: &ShrunkGraph) -> MatchingState {
-    let mut shrunk_matching = MatchingState::new(shrunk.graph.len());
+    let mut shrunk_matching = MatchingState::new(shrunk.graph.adjacency.len());
 
     // Iterate over the matched edges in the original matching and map them to the shrunk graph,
     for u in 0..matching.mate.len() {
@@ -444,9 +517,63 @@ fn shrink_matching(matching: &MatchingState, shrunk: &ShrunkGraph) -> MatchingSt
     shrunk_matching
 }
 
+fn try_find_augmenting_path_edmonds(
+    graph: &EdmondsGraph,
+    matching: &MatchingState,
+    root: usize,
+) -> Result<Option<Vec<usize>>, MatcherError> {
+    match search_alternating_tree(graph, matching, root)? {
+        SearchResult::AugmentingPath(path) => Ok(Some(path)),
+
+        SearchResult::None => Ok(None),
+
+        SearchResult::Blossom { cycle, base, .. } => {
+            let blossom = Blossom::new(base, cycle);
+
+            let shrunk = shrink_graph(graph, &blossom);
+            let shrunk_matching = shrink_matching(matching, &shrunk);
+
+            let shrunk_root = shrunk.original_to_shrunk[root];
+
+            let shrunk_path =
+                try_find_augmenting_path_edmonds(&shrunk.graph, &shrunk_matching, shrunk_root)?;
+
+            match shrunk_path {
+                Some(_) => Err(MatcherError::BlossomExpansionNotImplemented),
+                None => Ok(None),
+            }
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
+    use tsplib_core::models::{Edge, Node};
+
     use super::*;
+
+    fn test_graph(adjacency: Vec<Vec<usize>>) -> EdmondsGraph {
+        let nodes = (0..adjacency.len())
+            .map(|id| Node {
+                id,
+                x: 0.0,
+                y: 0.0,
+                z: None,
+            })
+            .collect::<Vec<_>>();
+
+        let mut edges = Vec::new();
+
+        for u in 0..adjacency.len() {
+            for &v in &adjacency[u] {
+                if u < v {
+                    edges.push(Edge { u, v, weight: 1 });
+                }
+            }
+        }
+
+        EdmondsGraph::from_graph(&Graph { nodes, edges })
+    }
 
     #[test]
     fn augment_path_toggles_matching_edges() {
@@ -469,14 +596,14 @@ mod tests {
 
     #[test]
     fn find_simple_augmenting_path_without_blossom() {
-        let graph = vec![
+        let graph = test_graph(vec![
             vec![1],    // 0
             vec![0, 2], // 1
             vec![1, 3], // 2
             vec![2, 4], // 3
             vec![3, 5], // 4
             vec![4],    // 5
-        ];
+        ]);
 
         let mut matching = MatchingState::new(6);
         matching.match_edge(1, 2);
@@ -534,13 +661,13 @@ mod tests {
 
     #[test]
     fn detect_simple_blossom_cycles() {
-        let graph = vec![
+        let graph = test_graph(vec![
             vec![1, 3], // 0 root
             vec![0, 2], // 1
             vec![1, 4], // 2
             vec![0, 4], // 3
             vec![2, 3], // 4
-        ];
+        ]);
 
         let mut matching = MatchingState::new(5);
         matching.match_edge(1, 2);
@@ -565,7 +692,7 @@ mod tests {
 
     #[test]
     fn shrink_graph_contracts_blossom_cycle() {
-        let graph = vec![
+        let graph = test_graph(vec![
             vec![1, 3, 5], // 0
             vec![0, 2],    // 1
             vec![1, 4],    // 2
@@ -573,30 +700,30 @@ mod tests {
             vec![2, 3, 6], // 4
             vec![0],       // 5 external
             vec![4],       // 6 external
-        ];
+        ]);
 
         let blossom = Blossom::new(0, vec![2, 1, 0, 3, 4]);
-
         let shrunk = shrink_graph(&graph, &blossom);
 
-        assert_eq!(shrunk.blossom_node, 7);
+        assert_eq!(shrunk.graph.adjacency.len(), 3);
+        assert_eq!(shrunk.blossom_node, 2);
 
-        assert_eq!(shrunk.original_to_shrunk[0], 7);
-        assert_eq!(shrunk.original_to_shrunk[1], 7);
-        assert_eq!(shrunk.original_to_shrunk[2], 7);
-        assert_eq!(shrunk.original_to_shrunk[3], 7);
-        assert_eq!(shrunk.original_to_shrunk[4], 7);
+        assert_eq!(shrunk.original_to_shrunk[5], 0);
+        assert_eq!(shrunk.original_to_shrunk[6], 1);
 
-        assert!(shrunk.graph[7].contains(&5));
-        assert!(shrunk.graph[7].contains(&6));
+        for node in 0..=4 {
+            assert_eq!(shrunk.original_to_shrunk[node], shrunk.blossom_node);
+        }
 
-        assert!(shrunk.graph[5].contains(&7));
-        assert!(shrunk.graph[6].contains(&7));
+        assert!(shrunk.graph.adjacency[shrunk.blossom_node].contains(&0));
+        assert!(shrunk.graph.adjacency[shrunk.blossom_node].contains(&1));
+        assert!(shrunk.graph.adjacency[0].contains(&shrunk.blossom_node));
+        assert!(shrunk.graph.adjacency[1].contains(&shrunk.blossom_node));
     }
 
     #[test]
     fn shrink_matching_maps_external_matching_edge_to_blossom_node() {
-        let graph = vec![
+        let graph = test_graph(vec![
             vec![1, 3, 5], // 0
             vec![0, 2],    // 1
             vec![1, 4],    // 2
@@ -604,7 +731,7 @@ mod tests {
             vec![2, 3, 6], // 4
             vec![0],       // 5 external
             vec![4],       // 6 external
-        ];
+        ]);
 
         let blossom = Blossom::new(0, vec![2, 1, 0, 3, 4]);
         let shrunk = shrink_graph(&graph, &blossom);
@@ -616,24 +743,21 @@ mod tests {
 
         let shrunk_matching = shrink_matching(&matching, &shrunk);
 
-        assert_eq!(shrunk_matching.mate[shrunk.blossom_node], Some(5));
-        assert_eq!(shrunk_matching.mate[5], Some(shrunk.blossom_node));
+        let external_5 = shrunk.original_to_shrunk[5];
 
-        assert!(shrunk_matching.mate[1].is_none());
-        assert!(shrunk_matching.mate[2].is_none());
-        assert!(shrunk_matching.mate[3].is_none());
-        assert!(shrunk_matching.mate[4].is_none());
+        assert_eq!(shrunk_matching.mate[shrunk.blossom_node], Some(external_5));
+        assert_eq!(shrunk_matching.mate[external_5], Some(shrunk.blossom_node));
     }
 
     #[test]
     fn can_shrink_detected_blossom() {
-        let graph = vec![
+        let graph = test_graph(vec![
             vec![1, 3], // 0 root / blossom base
             vec![0, 2], // 1
             vec![1, 4], // 2
             vec![0, 4], // 3
             vec![2, 3], // 4
-        ];
+        ]);
 
         let mut matching = MatchingState::new(5);
         matching.match_edge(1, 2);
@@ -646,21 +770,76 @@ mod tests {
         };
 
         let blossom = Blossom::new(base, cycle);
-
         let shrunk = shrink_graph(&graph, &blossom);
         let shrunk_matching = shrink_matching(&matching, &shrunk);
 
         assert_eq!(blossom.base, 0);
         assert_eq!(blossom.cycle.len(), 5);
 
-        assert_eq!(shrunk.blossom_node, 5);
+        assert_eq!(shrunk.graph.adjacency.len(), 1);
+        assert_eq!(shrunk.blossom_node, 0);
 
         for node in 0..5 {
             assert_eq!(shrunk.original_to_shrunk[node], shrunk.blossom_node);
         }
 
-        assert!(shrunk.graph[shrunk.blossom_node].is_empty());
-
+        assert!(shrunk.graph.adjacency[shrunk.blossom_node].is_empty());
         assert!(shrunk_matching.mate[shrunk.blossom_node].is_none());
+    }
+
+    #[test]
+    fn edmonds_finds_augmenting_path_without_blossom() {
+        let graph = test_graph(vec![
+            vec![1],    // 0
+            vec![0, 2], // 1
+            vec![1, 3], // 2
+            vec![2, 4], // 3
+            vec![3, 5], // 4
+            vec![4],    // 5
+        ]);
+
+        let mut matching = MatchingState::new(6);
+        matching.match_edge(1, 2);
+        matching.match_edge(3, 4);
+
+        let path = try_find_augmenting_path_edmonds(&graph, &matching, 0)
+            .expect("search should succeed")
+            .expect("augmenting path should exist");
+
+        assert_eq!(path, vec![0, 1, 2, 3, 4, 5]);
+    }
+
+    #[test]
+    fn edmonds_detects_blossom_but_expansion_is_not_implemented() {
+        let graph = test_graph(vec![
+            vec![1, 3, 5], // 0 base
+            vec![0, 2],    // 1
+            vec![1, 4],    // 2
+            vec![0, 4],    // 3
+            vec![2, 3],    // 4
+            vec![0, 6],    // 5
+            vec![5],       // 6 exposed
+        ]);
+
+        let mut matching = MatchingState::new(7);
+        matching.match_edge(1, 2);
+        matching.match_edge(3, 4);
+        matching.match_edge(0, 5);
+
+        let result = search_alternating_tree(&graph, &matching, 6).expect("search should succeed");
+
+        let SearchResult::Blossom { cycle, base, .. } = result else {
+            panic!("expected blossom before shrinking");
+        };
+
+        let blossom = Blossom::new(base, cycle);
+        let shrunk = shrink_graph(&graph, &blossom);
+        let shrunk_matching = shrink_matching(&matching, &shrunk);
+        let shrunk_root = shrunk.original_to_shrunk[6];
+
+        let shrunk_result = search_alternating_tree(&shrunk.graph, &shrunk_matching, shrunk_root)
+            .expect("shrunk search should succeed");
+
+        assert!(matches!(shrunk_result, SearchResult::None));
     }
 }
