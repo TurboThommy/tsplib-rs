@@ -15,9 +15,16 @@ enum SearchResult {
     AugmentingPath(Vec<usize>),
     Blossom {
         cycle: Vec<usize>,
+        base: usize,
         edge: (usize, usize),
     },
     None,
+}
+
+#[derive(Debug, Clone)]
+struct Blossom {
+    base: usize,
+    cycle: Vec<usize>,
 }
 
 /// A struct to represent the state of the matching during the algorithm.
@@ -26,6 +33,13 @@ struct MatchingState {
     /// The `mate` vector holds the index of the matched vertex for each vertex in the graph.
     /// If a vertex is unmatched, its entry is `None`.
     mate: Vec<Option<usize>>,
+}
+
+#[derive(Debug, Clone)]
+struct ShrunkGraph {
+    graph: Vec<Vec<usize>>,
+    blossom_node: usize,
+    original_to_shrunk: Vec<usize>,
 }
 
 impl MatchingState {
@@ -97,6 +111,28 @@ impl MatchingState {
                 self.match_edge(u, v);
             }
         }
+    }
+}
+
+impl Blossom {
+    /// Creates a new `Blossom` with the given base vertex and cycle of vertices.
+    ///
+    /// # Arguments
+    /// * `base` - The index of the base vertex of the blossom.
+    /// * `cycle` - A vector of vertex indices representing the cycle of the blossom.
+    fn new(base: usize, cycle: Vec<usize>) -> Self {
+        Self { base, cycle }
+    }
+
+    /// Checks if a given vertex is part of the blossom's cycle.
+    ///
+    /// # Arguments
+    /// * `node` - The index of the vertex to check.
+    ///
+    /// # Returns
+    /// * `true` if the vertex is part of the blossom's cycle, `false` otherwise.
+    fn contains(&self, node: usize) -> bool {
+        self.cycle.contains(&node)
     }
 }
 
@@ -210,6 +246,7 @@ fn search_alternating_tree(
 
                         return Ok(SearchResult::Blossom {
                             cycle,
+                            base: lca,
                             edge: (u, v),
                         });
                     }
@@ -306,6 +343,105 @@ fn try_reconstruct_blossom_cycle(
     // Combine the two paths to form the cycle of the blossom.
     left.extend(right);
     Ok(left)
+}
+
+/// Shrinks the graph by contracting the blossom into a single vertex, creating a new graph representation that reflects the contraction.
+///
+/// # Arguments
+/// * `graph` - A reference to the adjacency list representation of the original graph.
+/// * `blossom` - A reference to the `Blossom` struct representing the blossom to be contracted.
+///
+/// # Returns
+/// * `ShrunkGraph` - A struct containing the new graph representation after shrinking the blossom,
+///   the index of the new vertex representing the blossom,and a mapping from original vertices to
+///   their corresponding vertices in the shrunk graph.
+fn shrink_graph(graph: &[Vec<usize>], blossom: &Blossom) -> ShrunkGraph {
+    let blossom_node = graph.len();
+
+    let mut original_to_shrunk = Vec::with_capacity(graph.len());
+
+    // Map original vertices to their corresponding vertices in the shrunk graph,
+    // with blossom vertices mapped to the new blossom node.
+    for node in 0..graph.len() {
+        if blossom.contains(node) {
+            original_to_shrunk.push(blossom_node);
+        } else {
+            original_to_shrunk.push(node);
+        }
+    }
+
+    let mut shrunk_graph = vec![Vec::new(); graph.len() + 1];
+
+    // Build the adjacency list for the shrunk graph by iterating over the edges of the original graph
+    // and mapping the vertices to their corresponding vertices in the shrunk graph.
+    for u in 0..graph.len() {
+        for &v in &graph[u] {
+            // Map the original vertices `u` and `v` to their corresponding vertices in the shrunk graph.
+            let su = original_to_shrunk[u];
+            let sv = original_to_shrunk[v];
+
+            if su == sv {
+                continue;
+            }
+
+            // Add edges to the shrunk graph, ensuring that duplicate edges are not added.
+            if !shrunk_graph[su].contains(&sv) {
+                shrunk_graph[su].push(sv);
+            }
+
+            if !shrunk_graph[sv].contains(&su) {
+                shrunk_graph[sv].push(su);
+            }
+        }
+    }
+
+    ShrunkGraph {
+        graph: shrunk_graph,
+        blossom_node,
+        original_to_shrunk,
+    }
+}
+
+/// Shrinks the matching state by mapping the matched edges from the original graph to the shrunk graph,
+/// ensuring that edges within the blossom are not included in the shrunk matching.
+///
+/// # Arguments
+/// * `matching` - A reference to the current state of the matching in the original graph.
+/// * `blossom` - A reference to the `Blossom` struct representing the blossom that has been contracted.
+/// * `shrunk` - A reference to the `ShrunkGraph` struct containing the new graph representation after shrinking the blossom.
+///
+/// # Returns
+/// * `MatchingState` - A new `MatchingState` representing the matching in the shrunk graph,
+///   with edges mapped from the original graph and edges within the blossom excluded.
+fn shrink_matching(matching: &MatchingState, shrunk: &ShrunkGraph) -> MatchingState {
+    let mut shrunk_matching = MatchingState::new(shrunk.graph.len());
+
+    // Iterate over the matched edges in the original matching and map them to the shrunk graph,
+    for u in 0..matching.mate.len() {
+        // Skip unmatched vertices
+        let Some(v) = matching.mate[u] else {
+            continue;
+        };
+
+        // avoid processing duplicates
+        if u > v {
+            continue;
+        }
+
+        // Map the original vertices `u` and `v` to their corresponding vertices in the shrunk graph.
+        let su = shrunk.original_to_shrunk[u];
+        let sv = shrunk.original_to_shrunk[v];
+
+        // remove matching edges inside the blossom
+        if su == sv {
+            continue;
+        }
+
+        // Match the corresponding vertices in the shrunk graph.
+        shrunk_matching.match_edge(su, sv);
+    }
+
+    shrunk_matching
 }
 
 #[cfg(test)]
@@ -413,8 +549,9 @@ mod tests {
         let result = search_alternating_tree(&graph, &matching, 0).expect("search should succeed");
 
         match result {
-            SearchResult::Blossom { cycle, edge } => {
+            SearchResult::Blossom { cycle, base, edge } => {
                 assert_eq!(cycle.len(), 5);
+                assert_eq!(base, 0);
                 assert!(matches!(edge, (2, 4) | (4, 2)));
                 assert!(cycle.contains(&0));
                 assert!(cycle.contains(&1));
@@ -424,5 +561,106 @@ mod tests {
             }
             _ => panic!("expected blossom"),
         }
+    }
+
+    #[test]
+    fn shrink_graph_contracts_blossom_cycle() {
+        let graph = vec![
+            vec![1, 3, 5], // 0
+            vec![0, 2],    // 1
+            vec![1, 4],    // 2
+            vec![0, 4],    // 3
+            vec![2, 3, 6], // 4
+            vec![0],       // 5 external
+            vec![4],       // 6 external
+        ];
+
+        let blossom = Blossom::new(0, vec![2, 1, 0, 3, 4]);
+
+        let shrunk = shrink_graph(&graph, &blossom);
+
+        assert_eq!(shrunk.blossom_node, 7);
+
+        assert_eq!(shrunk.original_to_shrunk[0], 7);
+        assert_eq!(shrunk.original_to_shrunk[1], 7);
+        assert_eq!(shrunk.original_to_shrunk[2], 7);
+        assert_eq!(shrunk.original_to_shrunk[3], 7);
+        assert_eq!(shrunk.original_to_shrunk[4], 7);
+
+        assert!(shrunk.graph[7].contains(&5));
+        assert!(shrunk.graph[7].contains(&6));
+
+        assert!(shrunk.graph[5].contains(&7));
+        assert!(shrunk.graph[6].contains(&7));
+    }
+
+    #[test]
+    fn shrink_matching_maps_external_matching_edge_to_blossom_node() {
+        let graph = vec![
+            vec![1, 3, 5], // 0
+            vec![0, 2],    // 1
+            vec![1, 4],    // 2
+            vec![0, 4],    // 3
+            vec![2, 3, 6], // 4
+            vec![0],       // 5 external
+            vec![4],       // 6 external
+        ];
+
+        let blossom = Blossom::new(0, vec![2, 1, 0, 3, 4]);
+        let shrunk = shrink_graph(&graph, &blossom);
+
+        let mut matching = MatchingState::new(7);
+        matching.match_edge(1, 2); // inside blossom
+        matching.match_edge(3, 4); // inside blossom
+        matching.match_edge(0, 5); // blossom matched to outside
+
+        let shrunk_matching = shrink_matching(&matching, &shrunk);
+
+        assert_eq!(shrunk_matching.mate[shrunk.blossom_node], Some(5));
+        assert_eq!(shrunk_matching.mate[5], Some(shrunk.blossom_node));
+
+        assert!(shrunk_matching.mate[1].is_none());
+        assert!(shrunk_matching.mate[2].is_none());
+        assert!(shrunk_matching.mate[3].is_none());
+        assert!(shrunk_matching.mate[4].is_none());
+    }
+
+    #[test]
+    fn can_shrink_detected_blossom() {
+        let graph = vec![
+            vec![1, 3], // 0 root / blossom base
+            vec![0, 2], // 1
+            vec![1, 4], // 2
+            vec![0, 4], // 3
+            vec![2, 3], // 4
+        ];
+
+        let mut matching = MatchingState::new(5);
+        matching.match_edge(1, 2);
+        matching.match_edge(3, 4);
+
+        let result = search_alternating_tree(&graph, &matching, 0).expect("search should succeed");
+
+        let SearchResult::Blossom { cycle, base, .. } = result else {
+            panic!("expected blossom");
+        };
+
+        let blossom = Blossom::new(base, cycle);
+
+        let shrunk = shrink_graph(&graph, &blossom);
+        let shrunk_matching = shrink_matching(&matching, &shrunk);
+
+        assert_eq!(blossom.base, 0);
+        assert_eq!(blossom.cycle.len(), 5);
+
+        assert_eq!(shrunk.blossom_node, 5);
+
+        for node in 0..5 {
+            assert_eq!(shrunk.original_to_shrunk[node], shrunk.blossom_node);
+        }
+
+        assert!(shrunk.graph[shrunk.blossom_node].is_empty());
+
+        assert!(shrunk_matching.mate[shrunk.blossom_node].is_none());
     }
 }
