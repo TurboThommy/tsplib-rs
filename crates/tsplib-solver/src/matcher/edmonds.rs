@@ -733,6 +733,20 @@ fn find_original_edge_to_blossom(
         .find(|&neighbor| blossom.contains(neighbor))
 }
 
+/// Attempts to expand an augmenting path that goes through a blossom by replacing the blossom node in
+/// the path with a valid alternating path along the blossom's cycle.
+///
+/// # Arguments
+/// * `path` - A slice of vertex indices representing the path that goes through the blossom, where one of the vertices is the blossom node.
+/// * `graph` - A reference to the original graph represented as an `EdmondsGraph`.
+/// * `shrunk` - A reference to the `ShrunkGraph` struct containing the new graph representation after shrinking the blossom.
+/// * `blossom` - A reference to the `Blossom` struct representing the blossom that is being expanded.
+/// * `matching` - A reference to the current state of the matching in the original graph.
+///
+/// # Returns
+/// * `Result<Vec<usize>, MatcherError>` - A vector of vertex indices representing the expanded path with the blossom node
+///   replaced by a valid alternating path along the blossom's cycle, or an error if the path cannot be expanded due to issues
+///   with mapping shrunk nodes to original nodes or finding valid paths through the blossom.
 fn try_expand_path_through_blossom(
     path: &[usize],
     graph: &EdmondsGraph,
@@ -740,40 +754,103 @@ fn try_expand_path_through_blossom(
     blossom: &Blossom,
     matching: &MatchingState,
 ) -> Result<Vec<usize>, MatcherError> {
+    // Find the position of the blossom node in the path. If the blossom node is not present,
+    // map the path back to original nodes and return it.
     let Some(blossom_pos) = path.iter().position(|&node| node == shrunk.blossom_node) else {
         return path
             .iter()
             .map(|&node| {
-                shrunk.shrunk_to_original[node].ok_or(MatcherError::ShrunkNodeNotMapped(node))
+                shrunk
+                    .shrunk_to_original
+                    .get(node)
+                    .copied()
+                    .flatten()
+                    .ok_or(MatcherError::ShrunkNodeNotMapped(node))
             })
             .collect();
     };
 
-    let prev = path.get(blossom_pos.wrapping_sub(1)).copied();
+    // Get the previous and next nodes in the path adjacent to the blossom node
+    let prev = if blossom_pos > 0 {
+        path.get(blossom_pos - 1).copied()
+    } else {
+        None
+    };
     let next = path.get(blossom_pos + 1).copied();
 
-    let Some(prev) = prev else {
-        return Err(MatcherError::BlossomNodeAtPathBoundary(blossom_pos));
+    let blossom_path = match (prev, next) {
+        (Some(prev), Some(next)) => {
+            // Map the previous and next nodes from the shrunk graph back to their corresponding original nodes in the original graph.
+            let prev_original = shrunk
+                .shrunk_to_original
+                .get(prev)
+                .copied()
+                .flatten()
+                .ok_or(MatcherError::ShrunkNodeNotMapped(prev))?;
+
+            let next_original = shrunk
+                .shrunk_to_original
+                .get(next)
+                .copied()
+                .flatten()
+                .ok_or(MatcherError::ShrunkNodeNotMapped(next))?;
+
+            // Find the edges in the original graph that connect the previous and next nodes to any vertex in the blossom,
+            // which will serve as the entry and exit points for expanding the blossom.
+            let entry = find_original_edge_to_blossom(graph, blossom, prev_original)
+                .ok_or(MatcherError::NoEdgeIntoBlossom(prev_original))?;
+            let exit = find_original_edge_to_blossom(graph, blossom, next_original)
+                .ok_or(MatcherError::NoEdgeIntoBlossom(next_original))?;
+
+            // Choose a valid alternating path along the blossom's cycle between the entry and exit vertices,
+            // which will replace the blossom node in the path.
+            try_expand_blossom_node(blossom, entry, exit, matching)?
+        }
+
+        (None, Some(next)) => {
+            // Map the next node from the shrunk graph back to its corresponding original node in the original graph.
+            let next_original = shrunk
+                .shrunk_to_original
+                .get(next)
+                .copied()
+                .flatten()
+                .ok_or(MatcherError::ShrunkNodeNotMapped(next))?;
+
+            // Find the edge in the original graph that connects the next node to any vertex in the blossom,
+            // which will serve as the exit point for expanding the blossom.
+            let exit = find_original_edge_to_blossom(graph, blossom, next_original)
+                .ok_or(MatcherError::NoEdgeIntoBlossom(next_original))?;
+
+            // Choose a valid alternating path along the blossom's cycle between the base of the blossom and the exit vertex,
+            // which will replace the blossom node in the path.
+            try_expand_blossom_node(blossom, blossom.base, exit, matching)?
+        }
+
+        (Some(prev), None) => {
+            // Map the previous node from the shrunk graph back to its corresponding original node in the original graph.
+            let prev_original = shrunk
+                .shrunk_to_original
+                .get(prev)
+                .copied()
+                .flatten()
+                .ok_or(MatcherError::ShrunkNodeNotMapped(prev))?;
+
+            // Find the edge in the original graph that connects the previous node to any vertex in the blossom,
+            // which will serve as the entry point for expanding the blossom.
+            let entry = find_original_edge_to_blossom(graph, blossom, prev_original)
+                .ok_or(MatcherError::NoEdgeIntoBlossom(prev_original))?;
+
+            // Choose a valid alternating path along the blossom's cycle between the entry vertex and the base of the blossom,
+            // which will replace the blossom node in the path.
+            try_expand_blossom_node(blossom, entry, blossom.base, matching)?
+        }
+
+        (None, None) => vec![blossom.base],
     };
-
-    let Some(next) = next else {
-        return Err(MatcherError::BlossomNodeAtPathBoundary(blossom_pos));
-    };
-
-    let prev_original =
-        shrunk.shrunk_to_original[prev].ok_or(MatcherError::ShrunkNodeNotMapped(prev))?;
-    let next_original =
-        shrunk.shrunk_to_original[next].ok_or(MatcherError::ShrunkNodeNotMapped(next))?;
-
-    let entry = find_original_edge_to_blossom(graph, blossom, prev_original)
-        .ok_or(MatcherError::NoEdgeIntoBlossom(prev_original))?;
-    let exit = find_original_edge_to_blossom(graph, blossom, next_original)
-        .ok_or(MatcherError::NoEdgeIntoBlossom(next_original))?;
-
-    let blossom_path = try_expand_blossom_node(blossom, entry, exit, matching)?;
 
     let mut expanded = Vec::new();
 
+    // Map the portion of the path before the blossom node back to original nodes and add it to the expanded path.
     for &node in &path[..blossom_pos] {
         let original = shrunk
             .shrunk_to_original
@@ -787,6 +864,7 @@ fn try_expand_path_through_blossom(
 
     expanded.extend(blossom_path);
 
+    // Map the portion of the path after the blossom node back to original nodes and add it to the expanded path.
     for &node in &path[(blossom_pos + 1)..] {
         let original = shrunk
             .shrunk_to_original
@@ -799,6 +877,43 @@ fn try_expand_path_through_blossom(
     }
 
     Ok(expanded)
+}
+
+/// Attempts to compute a maximum matching in the graph using Edmonds' algorithm by repeatedly searching
+/// for augmenting paths and augmenting the matching until no more augmenting paths can be found.
+///
+/// # Arguments
+/// * `graph` - A reference to the graph represented as an `EdmondsGraph` for which to compute the maximum matching.
+///
+/// # Returns
+/// * `Result<MatchingState, MatcherError>` - The final state of the matching after no more augmenting paths can be found,
+///   or an error if any issues occur during the search for augmenting paths or augmentation process.
+fn try_compute_maximum_matching(graph: &EdmondsGraph) -> Result<MatchingState, MatcherError> {
+    let mut matching = MatchingState::new(graph.adjacency.len());
+
+    loop {
+        let mut augmented = false;
+
+        for root in 0..graph.adjacency.len() {
+            if !matching.is_exposed(root) {
+                continue;
+            }
+
+            let Some(path) = try_find_augmenting_path_edmonds(graph, &matching, root)? else {
+                continue;
+            };
+
+            matching.augment_path(&path);
+            augmented = true;
+            break;
+        }
+
+        if !augmented {
+            break;
+        }
+    }
+
+    Ok(matching)
 }
 
 #[cfg(test)]
@@ -1212,5 +1327,38 @@ mod tests {
             .expect("augmenting path should exist");
 
         assert_eq!(path, vec![6, 5, 0, 3, 7]);
+    }
+
+    #[test]
+    fn computes_maximum_matching_without_blossom() {
+        let graph = test_graph(vec![vec![1], vec![0, 2], vec![1, 3], vec![2]]);
+
+        let matching = try_compute_maximum_matching(&graph).expect("matching should compute");
+
+        assert_eq!(matching.mate[0], Some(1));
+        assert_eq!(matching.mate[1], Some(0));
+        assert_eq!(matching.mate[2], Some(3));
+        assert_eq!(matching.mate[3], Some(2));
+    }
+
+    #[test]
+    fn computes_maximum_matching_with_blossom() {
+        let graph = test_graph(vec![
+            vec![1, 2],    // 0
+            vec![0, 2],    // 1
+            vec![0, 1, 3], // 2
+            vec![2],       // 3
+        ]);
+
+        let matching = try_compute_maximum_matching(&graph).expect("matching should compute");
+
+        let matched_edges = matching
+            .mate
+            .iter()
+            .enumerate()
+            .filter(|(u, mate)| mate.is_some_and(|v| *u < v))
+            .count();
+
+        assert_eq!(matched_edges, 2);
     }
 }
