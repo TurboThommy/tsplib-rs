@@ -1131,3 +1131,203 @@ fn weighted_search_updates_duals_until_path_becomes_tight() {
     assert_eq!(path, vec![0, 1]);
     assert!(graph.try_is_tight(&duals, 0, 1).unwrap());
 }
+
+#[test]
+fn weighted_search_detects_blossom_on_tight_edges() {
+    let graph = EdmondsGraph::from_graph(&Graph {
+        nodes: vec![
+            Node {
+                id: 0,
+                x: 0.0,
+                y: 0.0,
+                z: None,
+            },
+            Node {
+                id: 1,
+                x: 0.0,
+                y: 0.0,
+                z: None,
+            },
+            Node {
+                id: 2,
+                x: 0.0,
+                y: 0.0,
+                z: None,
+            },
+            Node {
+                id: 3,
+                x: 0.0,
+                y: 0.0,
+                z: None,
+            },
+            Node {
+                id: 4,
+                x: 0.0,
+                y: 0.0,
+                z: None,
+            },
+        ],
+        edges: vec![
+            Edge {
+                u: 0,
+                v: 1,
+                weight: 10,
+            },
+            Edge {
+                u: 1,
+                v: 2,
+                weight: 10,
+            },
+            Edge {
+                u: 2,
+                v: 4,
+                weight: 10,
+            },
+            Edge {
+                u: 4,
+                v: 3,
+                weight: 10,
+            },
+            Edge {
+                u: 3,
+                v: 0,
+                weight: 10,
+            },
+        ],
+    });
+
+    let mut duals = DualState::new(5);
+    for node in 0..5 {
+        duals.try_set(node, 10).unwrap();
+    }
+
+    let mut matching = MatchingState::new(5);
+    matching.match_edge(1, 2);
+    matching.match_edge(3, 4);
+
+    let search =
+        search_tight_alternating_tree(&graph, &duals, &matching, 0).expect("search should succeed");
+
+    match search.result {
+        SearchResult::Blossom { cycle, base, edge } => {
+            assert_eq!(cycle.len(), 5);
+            assert_eq!(base, 0);
+            assert!(matches!(edge, (2, 4) | (4, 2)));
+        }
+        _ => panic!("expected blossom"),
+    }
+}
+
+#[test]
+fn weighted_search_expands_path_through_tight_blossom() {
+    let graph = EdmondsGraph::from_graph(&Graph {
+        nodes: vec![
+            Node {
+                id: 0,
+                x: 0.0,
+                y: 0.0,
+                z: None,
+            },
+            Node {
+                id: 1,
+                x: 0.0,
+                y: 0.0,
+                z: None,
+            },
+            Node {
+                id: 2,
+                x: 0.0,
+                y: 0.0,
+                z: None,
+            },
+            Node {
+                id: 3,
+                x: 0.0,
+                y: 0.0,
+                z: None,
+            },
+            Node {
+                id: 4,
+                x: 0.0,
+                y: 0.0,
+                z: None,
+            },
+            Node {
+                id: 5,
+                x: 0.0,
+                y: 0.0,
+                z: None,
+            },
+            Node {
+                id: 6,
+                x: 0.0,
+                y: 0.0,
+                z: None,
+            },
+            Node {
+                id: 7,
+                x: 0.0,
+                y: 0.0,
+                z: None,
+            },
+        ],
+        edges: vec![
+            Edge {
+                u: 0,
+                v: 1,
+                weight: 10,
+            },
+            Edge {
+                u: 1,
+                v: 2,
+                weight: 10,
+            },
+            Edge {
+                u: 2,
+                v: 4,
+                weight: 10,
+            },
+            Edge {
+                u: 4,
+                v: 3,
+                weight: 10,
+            },
+            Edge {
+                u: 3,
+                v: 0,
+                weight: 10,
+            },
+            Edge {
+                u: 0,
+                v: 5,
+                weight: 10,
+            },
+            Edge {
+                u: 5,
+                v: 6,
+                weight: 10,
+            },
+            Edge {
+                u: 3,
+                v: 7,
+                weight: 10,
+            },
+        ],
+    });
+
+    let mut duals = DualState::new(8);
+    for node in 0..8 {
+        duals.try_set(node, 10).unwrap();
+    }
+
+    let mut matching = MatchingState::new(8);
+    matching.match_edge(1, 2);
+    matching.match_edge(3, 4);
+    matching.match_edge(0, 5);
+
+    let path = try_find_weighted_augmenting_path(&graph, &mut duals, &matching, 6)
+        .expect("weighted search should succeed")
+        .expect("augmenting path should exist");
+
+    assert_eq!(path, vec![6, 5, 0, 3, 7]);
+}

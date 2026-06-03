@@ -1462,8 +1462,47 @@ fn try_find_weighted_augmenting_path(
 
         match search.result {
             SearchResult::AugmentingPath(path) => return Ok(Some(path)),
-            SearchResult::Blossom { .. } => {
-                return Err(MatcherError::BlossomExpansionNotImplemented);
+            SearchResult::Blossom { cycle, base, .. } => {
+                let blossom = Blossom::new(base, cycle);
+
+                let shrunk = shrink_graph(graph, &blossom);
+                let shrunk_matching = shrink_matching(matching, &shrunk);
+
+                let mut shrunk_duals = DualState::new(shrunk.graph.adjacency.len());
+
+                for original in 0..shrunk.original_to_shrunk.len() {
+                    let shrunk_node = shrunk.original_to_shrunk[original];
+
+                    if shrunk_node == shrunk.blossom_node {
+                        continue;
+                    }
+
+                    let value = duals.try_get(original)?;
+                    shrunk_duals.try_set(shrunk_node, value)?;
+                }
+
+                shrunk_duals.try_set(shrunk.blossom_node, duals.try_get(blossom.base)?)?;
+
+                let shrunk_root = shrunk.original_to_shrunk[root];
+
+                let shrunk_path = try_find_weighted_augmenting_path(
+                    &shrunk.graph,
+                    &mut shrunk_duals,
+                    &shrunk_matching,
+                    shrunk_root,
+                )?;
+
+                match shrunk_path {
+                    Some(path) => {
+                        let expanded = try_expand_path_through_blossom(
+                            &path, graph, &shrunk, &blossom, matching,
+                        )?;
+
+                        return Ok(Some(expanded));
+                    }
+
+                    None => return Ok(None),
+                }
             }
             SearchResult::None => {
                 let tree = build_tight_alternating_tree(graph, duals, matching, root)?;
