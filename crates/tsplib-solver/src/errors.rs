@@ -87,6 +87,10 @@ pub enum MatcherError {
     BlossomNodeAtPathBoundary(usize),
     #[error("No original edge found from external node {0} into blossom.")]
     NoEdgeIntoBlossom(usize),
+    #[error("Invalid node index {0} for graph with {1} nodes.")]
+    InvalidNodeIndex(usize, usize),
+    #[error("Edge ({0}, {1}) does not exist in graph.")]
+    MissingEdge(usize, usize),
 }
 
 impl From<InstanceError> for SolverError {
