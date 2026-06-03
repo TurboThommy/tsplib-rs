@@ -75,6 +75,12 @@ pub enum MatcherError {
     )]
     NodeNotConnectedToLca(usize, usize),
 
+    #[error("Node {0} is not in the blossom during path reconstruction.")]
+    NodeNotInBlossom(usize),
+
+    #[error("No alternating blossom path found between nodes {0} and {1}.")]
+    NoAlternatingBlossomPath(usize, usize),
+
     #[error("Blossom expansion is not implemented yet")]
     BlossomExpansionNotImplemented,
 }

@@ -144,9 +144,78 @@ impl Blossom {
     fn contains(&self, node: usize) -> bool {
         self.cycle.contains(&node)
     }
+
+    /// Returns the index of a given vertex in the blossom's cycle if it is part of the cycle.
+    ///
+    /// # Arguments
+    /// * `node` - The index of the vertex to find in the cycle.
+    ///
+    /// # Returns
+    /// * `Some(usize)` containing the index of the vertex in the cycle if it is part of the cycle, or `None` if it is not.
+    fn cycle_index(&self, node: usize) -> Option<usize> {
+        self.cycle.iter().position(|&n| n == node)
+    }
+
+    /// Returns the paths along the blossom's cycle between two given vertices, if both vertices are part of the cycle.
+    ///
+    /// # Arguments
+    /// * `from` - The index of the starting vertex in the cycle.
+    /// * `to` - The index of the ending vertex in the cycle.
+    ///
+    /// # Returns
+    /// * `Result<(Vec<usize>, Vec<usize>), MatcherError>` - A tuple containing the forward and backward paths along the cycle
+    ///   between the two vertices, or an error if either vertex is not part of the cycle.
+    fn cycle_paths_between(
+        &self,
+        from: usize,
+        to: usize,
+    ) -> Result<(Vec<usize>, Vec<usize>), MatcherError> {
+        let from_index = self
+            .cycle_index(from)
+            .ok_or(MatcherError::NodeNotInBlossom(from))?;
+        let to_index = self
+            .cycle_index(to)
+            .ok_or(MatcherError::NodeNotInBlossom(to))?;
+
+        let n = self.cycle.len();
+
+        // Construct the forward path from `from` to `to` along the cycle, wrapping around if necessary.
+        let mut forward = Vec::new();
+        let mut i = from_index;
+
+        loop {
+            forward.push(self.cycle[i]);
+
+            if i == to_index {
+                break;
+            }
+
+            i = (i + 1) % n;
+        }
+
+        // Construct the backward path from `to` to `from` along the cycle, wrapping around if necessary.
+        let mut backward = Vec::new();
+        let mut i = from_index;
+
+        loop {
+            backward.push(self.cycle[i]);
+
+            if i == to_index {
+                break;
+            }
+
+            i = (i + n - 1) % n;
+        }
+
+        Ok((forward, backward))
+    }
 }
 
 impl EdmondsGraph {
+    /// Creates a new `EdmondsGraph` from a given `Graph` by constructing the adjacency list and mapping between node IDs and indices.
+    ///
+    /// # Arguments
+    /// * `graph` - A reference to the original `Graph` from which to create the `EdmondsGraph`.
     fn from_graph(graph: &Graph) -> Self {
         let index_to_node_id = graph.nodes.iter().map(|node| node.id).collect::<Vec<_>>();
 
@@ -517,6 +586,17 @@ fn shrink_matching(matching: &MatchingState, shrunk: &ShrunkGraph) -> MatchingSt
     shrunk_matching
 }
 
+/// Attempts to find an augmenting path in the graph using Edmonds' algorithm,
+/// which includes handling blossoms by shrinking them and recursively searching for augmenting paths in the shrunk graph.
+///
+/// # Arguments
+/// * `graph` - A reference to the graph represented as an `EdmondsGraph`.
+/// * `matching` - A reference to the current state of the matching.
+/// * `root` - The index of the root vertex from which to start the search for an augmenting path.
+///
+/// # Returns
+/// * `Result<Option<Vec<usize>>, MatcherError>` - An optional vector of vertex indices representing the augmenting path found,
+///   or `None` if no augmenting path exists, or an error if blossom expansion is not implemented.
 fn try_find_augmenting_path_edmonds(
     graph: &EdmondsGraph,
     matching: &MatchingState,
@@ -543,6 +623,50 @@ fn try_find_augmenting_path_edmonds(
                 None => Ok(None),
             }
         }
+    }
+}
+
+fn is_alternating_path(path: &[usize], matching: &MatchingState) -> bool {
+    if path.len() < 2 {
+        return true;
+    }
+
+    let first_edge_is_matched = matching.mate[path[0]] == Some(path[1]);
+
+    for (index, window) in path.windows(2).enumerate() {
+        let u = window[0];
+        let v = window[1];
+
+        let is_matched = matching.mate[u] == Some(v);
+
+        if index.is_multiple_of(2) {
+            if is_matched != first_edge_is_matched {
+                return false;
+            }
+        } else if is_matched == first_edge_is_matched {
+            return false;
+        }
+    }
+
+    true
+}
+
+fn try_choose_alternating_blossom_path(
+    blossom: &Blossom,
+    from: usize,
+    to: usize,
+    matching: &MatchingState,
+) -> Result<Vec<usize>, MatcherError> {
+    let (forward, backward) = blossom.cycle_paths_between(from, to)?;
+
+    match (
+        is_alternating_path(&forward, matching),
+        is_alternating_path(&backward, matching),
+    ) {
+        (true, false) => Ok(forward),
+        (false, true) => Ok(backward),
+        (true, true) => Ok(forward),
+        (false, false) => Err(MatcherError::NoAlternatingBlossomPath(from, to)),
     }
 }
 
@@ -841,5 +965,51 @@ mod tests {
             .expect("shrunk search should succeed");
 
         assert!(matches!(shrunk_result, SearchResult::None));
+    }
+
+    #[test]
+    fn blossom_cycle_index() {
+        let blossom = Blossom::new(0, vec![2, 1, 0, 3, 4]);
+
+        assert_eq!(blossom.cycle_index(2), Some(0));
+        assert_eq!(blossom.cycle_index(0), Some(2));
+        assert_eq!(blossom.cycle_index(4), Some(4));
+        assert_eq!(blossom.cycle_index(42), None);
+    }
+
+    #[test]
+    fn blossom_cycle_paths_between() {
+        let blossom = Blossom::new(0, vec![2, 1, 0, 3, 4]);
+
+        let (forward, backward) = blossom
+            .cycle_paths_between(2, 4)
+            .expect("path should exist");
+
+        assert_eq!(forward, vec![2, 1, 0, 3, 4]);
+        assert_eq!(backward, vec![2, 4]);
+    }
+
+    #[test]
+    fn detects_alternating_path() {
+        let mut matching = MatchingState::new(5);
+        matching.match_edge(1, 2);
+        matching.match_edge(3, 4);
+
+        assert!(is_alternating_path(&[0, 1, 2, 3, 4], &matching));
+        assert!(!is_alternating_path(&[0, 1, 3, 4], &matching));
+    }
+
+    #[test]
+    fn chooses_alternating_blossom_path() {
+        let blossom = Blossom::new(0, vec![2, 1, 0, 3, 4]);
+
+        let mut matching = MatchingState::new(5);
+        matching.match_edge(1, 2);
+        matching.match_edge(3, 4);
+
+        let path = try_choose_alternating_blossom_path(&blossom, 0, 4, &matching)
+            .expect("should choose alternating blossom path");
+
+        assert_eq!(path, vec![0, 3, 4]);
     }
 }
