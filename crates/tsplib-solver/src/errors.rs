@@ -77,12 +77,16 @@ pub enum MatcherError {
 
     #[error("Node {0} is not in the blossom during path reconstruction.")]
     NodeNotInBlossom(usize),
-
     #[error("No alternating blossom path found between nodes {0} and {1}.")]
     NoAlternatingBlossomPath(usize, usize),
-
-    #[error("Blossom expansion is not implemented yet")]
-    BlossomExpansionNotImplemented,
+    #[error("Shrunk node {0} does not have a corresponding original node mapping.")]
+    ShrunkNodeNotMapped(usize),
+    #[error(
+        "Blossom node is at the boundary of the shrunk path and cannot be expanded. Position: {0}"
+    )]
+    BlossomNodeAtPathBoundary(usize),
+    #[error("No original edge found from external node {0} into blossom.")]
+    NoEdgeIntoBlossom(usize),
 }
 
 impl From<InstanceError> for SolverError {

@@ -52,6 +52,11 @@ struct EdmondsGraph {
     node_id_to_index: HashMap<usize, usize>,
 }
 
+#[derive(Debug, Clone)]
+struct ExpandedPath {
+    vertices: Vec<usize>,
+}
+
 impl MatchingState {
     /// Creates a new `MatchingState` with the given number of vertices, initializing all vertices as unmatched.
     ///
@@ -619,7 +624,12 @@ fn try_find_augmenting_path_edmonds(
                 try_find_augmenting_path_edmonds(&shrunk.graph, &shrunk_matching, shrunk_root)?;
 
             match shrunk_path {
-                Some(_) => Err(MatcherError::BlossomExpansionNotImplemented),
+                Some(path) => {
+                    let expanded_path =
+                        try_expand_path_through_blossom(&path, graph, &shrunk, &blossom, matching)?;
+
+                    Ok(Some(expanded_path))
+                }
                 None => Ok(None),
             }
         }
@@ -651,6 +661,18 @@ fn is_alternating_path(path: &[usize], matching: &MatchingState) -> bool {
     true
 }
 
+/// Attempts to choose an alternating path along the blossom's cycle between two given vertices,
+/// ensuring that the chosen path is valid according to the current matching state.
+///
+/// # Arguments
+/// * `blossom` - A reference to the `Blossom` struct representing the blossom containing the cycle.
+/// * `from` - The index of the starting vertex in the blossom's cycle from which to start the path.
+/// * `to` - The index of the ending vertex in the blossom's cycle to which to end the path.
+/// * `matching` - A reference to the current state of the matching.
+///
+/// # Returns
+/// * `Result<Vec<usize>, MatcherError>` - A vector of vertex indices representing the chosen alternating path along the blossom's cycle,
+///   or an error if no valid alternating path exists between the entry and exit vertices in the blossom's cycle.
 fn try_choose_alternating_blossom_path(
     blossom: &Blossom,
     from: usize,
@@ -668,6 +690,115 @@ fn try_choose_alternating_blossom_path(
         (true, true) => Ok(forward),
         (false, false) => Err(MatcherError::NoAlternatingBlossomPath(from, to)),
     }
+}
+
+/// Attempts to choose an alternating path along the blossom's cycle between two given vertices,
+/// ensuring that the chosen path is valid according to the current matching state.
+///
+/// # Arguments
+/// * `blossom` - A reference to the `Blossom` struct representing the blossom containing the cycle.
+/// * `entry` - The index of the entry vertex in the blossom's cycle from which to start the path.
+/// * `exit` - The index of the exit vertex in the blossom's cycle to which to end the path.
+/// * `matching` - A reference to the current state of the matching.
+///
+/// # Returns
+/// * `Result<Vec<usize>, MatcherError>` - A vector of vertex indices representing the chosen alternating path along the blossom's cycle,
+///   or an error if no valid alternating path exists between the entry and exit vertices in the blossom's cycle.
+fn try_expand_blossom_node(
+    blossom: &Blossom,
+    entry: usize,
+    exit: usize,
+    matching: &MatchingState,
+) -> Result<Vec<usize>, MatcherError> {
+    try_choose_alternating_blossom_path(blossom, entry, exit, matching)
+}
+
+/// Finds an original edge in the graph that connects an external vertex to any vertex in the blossom,
+/// which is necessary for reconstructing the path when expanding a blossom.
+///
+/// # Arguments
+/// * `graph` - A reference to the original graph represented as an `EdmondsGraph`.
+/// * `blossom` - A reference to the `Blossom` struct representing the blossom whose cycle is being expanded.
+/// * `external` - The index of the external vertex that is connected to the blossom.
+///
+/// # Returns
+/// * `Option<usize>` - The index of the vertex in the blossom that is connected to the external vertex, or `None` if no such edge exists.
+fn find_original_edge_to_blossom(
+    graph: &EdmondsGraph,
+    blossom: &Blossom,
+    external: usize,
+) -> Option<usize> {
+    graph
+        .neighbors(external)
+        .find(|&neighbor| blossom.contains(neighbor))
+}
+
+fn try_expand_path_through_blossom(
+    path: &[usize],
+    graph: &EdmondsGraph,
+    shrunk: &ShrunkGraph,
+    blossom: &Blossom,
+    matching: &MatchingState,
+) -> Result<Vec<usize>, MatcherError> {
+    let Some(blossom_pos) = path.iter().position(|&node| node == shrunk.blossom_node) else {
+        return path
+            .iter()
+            .map(|&node| {
+                shrunk.shrunk_to_original[node].ok_or(MatcherError::ShrunkNodeNotMapped(node))
+            })
+            .collect();
+    };
+
+    let prev = path.get(blossom_pos.wrapping_sub(1)).copied();
+    let next = path.get(blossom_pos + 1).copied();
+
+    let Some(prev) = prev else {
+        return Err(MatcherError::BlossomNodeAtPathBoundary(blossom_pos));
+    };
+
+    let Some(next) = next else {
+        return Err(MatcherError::BlossomNodeAtPathBoundary(blossom_pos));
+    };
+
+    let prev_original =
+        shrunk.shrunk_to_original[prev].ok_or(MatcherError::ShrunkNodeNotMapped(prev))?;
+    let next_original =
+        shrunk.shrunk_to_original[next].ok_or(MatcherError::ShrunkNodeNotMapped(next))?;
+
+    let entry = find_original_edge_to_blossom(graph, blossom, prev_original)
+        .ok_or(MatcherError::NoEdgeIntoBlossom(prev_original))?;
+    let exit = find_original_edge_to_blossom(graph, blossom, next_original)
+        .ok_or(MatcherError::NoEdgeIntoBlossom(next_original))?;
+
+    let blossom_path = try_expand_blossom_node(blossom, entry, exit, matching)?;
+
+    let mut expanded = Vec::new();
+
+    for &node in &path[..blossom_pos] {
+        let original = shrunk
+            .shrunk_to_original
+            .get(node)
+            .copied()
+            .flatten()
+            .ok_or(MatcherError::ShrunkNodeNotMapped(node))?;
+
+        expanded.push(original);
+    }
+
+    expanded.extend(blossom_path);
+
+    for &node in &path[(blossom_pos + 1)..] {
+        let original = shrunk
+            .shrunk_to_original
+            .get(node)
+            .copied()
+            .flatten()
+            .ok_or(MatcherError::ShrunkNodeNotMapped(node))?;
+
+        expanded.push(original);
+    }
+
+    Ok(expanded)
 }
 
 #[cfg(test)]
@@ -934,7 +1065,7 @@ mod tests {
     }
 
     #[test]
-    fn edmonds_detects_blossom_but_expansion_is_not_implemented() {
+    fn edmonds_detects_blossom() {
         let graph = test_graph(vec![
             vec![1, 3, 5], // 0 base
             vec![0, 2],    // 1
@@ -1011,5 +1142,75 @@ mod tests {
             .expect("should choose alternating blossom path");
 
         assert_eq!(path, vec![0, 3, 4]);
+    }
+
+    #[test]
+    fn expand_blossom_between_entry_and_exit() {
+        let blossom = Blossom::new(0, vec![2, 1, 0, 3, 4]);
+
+        let mut matching = MatchingState::new(5);
+        matching.match_edge(1, 2);
+        matching.match_edge(3, 4);
+
+        let expanded =
+            try_expand_blossom_node(&blossom, 0, 4, &matching).expect("should expand blossom");
+
+        assert_eq!(expanded, vec![0, 3, 4]);
+    }
+
+    #[test]
+    fn expands_path_through_blossom() {
+        let graph = test_graph(vec![
+            vec![1, 3, 5], // 0
+            vec![0, 2],    // 1
+            vec![1, 4],    // 2
+            vec![0, 4, 6], // 3
+            vec![2, 3],    // 4
+            vec![0],       // 5 external
+            vec![3],       // 6 external
+        ]);
+
+        let blossom = Blossom::new(0, vec![2, 1, 0, 3, 4]);
+        let shrunk = shrink_graph(&graph, &blossom);
+
+        let mut matching = MatchingState::new(7);
+        matching.match_edge(1, 2);
+        matching.match_edge(3, 4);
+
+        let path = vec![
+            shrunk.original_to_shrunk[5],
+            shrunk.blossom_node,
+            shrunk.original_to_shrunk[6],
+        ];
+
+        let expanded = try_expand_path_through_blossom(&path, &graph, &shrunk, &blossom, &matching)
+            .expect("path should expand");
+
+        assert_eq!(expanded, vec![5, 0, 3, 6]);
+    }
+
+    #[test]
+    fn edmonds_expands_augmenting_path_through_blossom() {
+        let graph = test_graph(vec![
+            vec![1, 3, 5], // 0 base
+            vec![0, 2],    // 1
+            vec![1, 4],    // 2
+            vec![0, 4, 7], // 3
+            vec![2, 3],    // 4
+            vec![0, 6],    // 5
+            vec![5],       // 6 exposed root
+            vec![3],       // 7 exposed target
+        ]);
+
+        let mut matching = MatchingState::new(8);
+        matching.match_edge(1, 2);
+        matching.match_edge(3, 4);
+        matching.match_edge(0, 5);
+
+        let path = try_find_augmenting_path_edmonds(&graph, &matching, 6)
+            .expect("search should succeed")
+            .expect("augmenting path should exist");
+
+        assert_eq!(path, vec![6, 5, 0, 3, 7]);
     }
 }
