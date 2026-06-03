@@ -464,7 +464,9 @@ impl DualState {
     fn try_slack(&self, graph: &EdmondsGraph, u: usize, v: usize) -> Result<i64, MatcherError> {
         let weight = graph.weight(u, v).ok_or(MatcherError::MissingEdge(u, v))?;
 
-        Ok(i64::from(weight) - self.try_get(u)? - self.try_get(v)?)
+        // The slack of an edge is calculated as the weight of the edge minus the sum of the dual values of its endpoints.
+        // Scale it by 2 to avoid dealing with fractions, since the dual values can be half-integers in the context of the blossom algorithm.
+        Ok(2 * i64::from(weight) - self.try_get(u)? - self.try_get(v)?)
     }
 }
 
@@ -1233,6 +1235,37 @@ fn search_tight_alternating_tree(
     }
 
     Ok(SearchResult::None)
+}
+
+/// Attempts to initialize the dual variables for the vertices in the graph based on the minimum edge weights,
+/// ensuring that the initial dual values are set correctly to allow for the search for tight edges during
+/// the execution of Edmonds' algorithm, and returning an error if any vertex has no neighbors or if any node index is invalid.
+///
+/// # Arguments
+/// * `graph` - A reference to the graph represented as an `EdmondsGraph` for which to initialize the dual variables.
+///
+/// # Returns
+/// * `Result<DualState, MatcherError>` - The initialized `DualState` containing the dual variables for the vertices in the graph,
+///   or an error if any vertex has no neighbors or if any node index is invalid.
+fn try_initialize_duals(graph: &EdmondsGraph) -> Result<DualState, MatcherError> {
+    let mut duals = DualState::new(graph.adjacency.len());
+
+    for node in 0..graph.adjacency.len() {
+        let neighbors = graph
+            .adjacency
+            .get(node)
+            .ok_or(MatcherError::InvalidNodeIndex(node, graph.adjacency.len()))?;
+
+        let min_weight = neighbors
+            .iter()
+            .filter_map(|&neighbor| graph.weight(node, neighbor))
+            .min()
+            .ok_or(MatcherError::NoMatchingCandidate(node))?;
+
+        duals.try_set(node, i64::from(min_weight))?;
+    }
+
+    Ok(duals)
 }
 
 #[cfg(test)]

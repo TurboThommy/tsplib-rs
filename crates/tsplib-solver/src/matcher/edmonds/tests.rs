@@ -603,10 +603,10 @@ fn slack_is_weight_minus_duals() {
 
     let mut duals = DualState::new(2);
 
-    duals.try_set(0, 3).unwrap();
-    duals.try_set(1, 2).unwrap();
+    duals.try_set(0, 6).unwrap();
+    duals.try_set(1, 4).unwrap();
 
-    assert_eq!(duals.try_slack(&graph, 0, 1).unwrap(), 5);
+    assert_eq!(duals.try_slack(&graph, 0, 1).unwrap(), 10);
 }
 
 #[test]
@@ -635,8 +635,8 @@ fn tight_edge_has_zero_slack() {
 
     let mut duals = DualState::new(2);
 
-    duals.try_set(0, 4).unwrap();
-    duals.try_set(1, 6).unwrap();
+    duals.try_set(0, 8).unwrap();
+    duals.try_set(1, 12).unwrap();
 
     assert_eq!(duals.try_slack(&graph, 0, 1).unwrap(), 0);
 }
@@ -667,8 +667,8 @@ fn detects_tight_edge() {
 
     let mut duals = DualState::new(2);
 
-    duals.try_set(0, 4).unwrap();
-    duals.try_set(1, 6).unwrap();
+    duals.try_set(0, 8).unwrap();
+    duals.try_set(1, 12).unwrap();
 
     assert!(graph.try_is_tight(&duals, 0, 1).unwrap());
 }
@@ -699,8 +699,8 @@ fn detects_non_tight_edge() {
 
     let mut duals = DualState::new(2);
 
-    duals.try_set(0, 3).unwrap();
-    duals.try_set(1, 2).unwrap();
+    duals.try_set(0, 6).unwrap();
+    duals.try_set(1, 4).unwrap();
 
     assert!(!graph.try_is_tight(&duals, 0, 1).unwrap());
 }
@@ -744,8 +744,8 @@ fn returns_only_tight_neighbors() {
 
     let mut duals = DualState::new(3);
 
-    duals.try_set(0, 4).unwrap();
-    duals.try_set(1, 6).unwrap();
+    duals.try_set(0, 8).unwrap();
+    duals.try_set(1, 12).unwrap();
     duals.try_set(2, 1).unwrap();
 
     let tight_neighbors = graph
@@ -793,8 +793,8 @@ fn tight_search_ignores_non_tight_edges() {
     });
 
     let mut duals = DualState::new(3);
-    duals.try_set(0, 4).unwrap();
-    duals.try_set(1, 6).unwrap();
+    duals.try_set(0, 8).unwrap();
+    duals.try_set(1, 12).unwrap();
     duals.try_set(2, 1).unwrap();
 
     let matching = MatchingState::new(3);
@@ -803,4 +803,101 @@ fn tight_search_ignores_non_tight_edges() {
         search_tight_alternating_tree(&graph, &duals, &matching, 0).expect("search should succeed");
 
     assert_eq!(result, SearchResult::AugmentingPath(vec![0, 1]));
+}
+
+#[test]
+fn initializes_duals_from_minimum_incident_edge_weight() {
+    let graph = EdmondsGraph::from_graph(&Graph {
+        nodes: vec![
+            Node {
+                id: 0,
+                x: 0.0,
+                y: 0.0,
+                z: None,
+            },
+            Node {
+                id: 1,
+                x: 0.0,
+                y: 0.0,
+                z: None,
+            },
+            Node {
+                id: 2,
+                x: 0.0,
+                y: 0.0,
+                z: None,
+            },
+        ],
+        edges: vec![
+            Edge {
+                u: 0,
+                v: 1,
+                weight: 10,
+            },
+            Edge {
+                u: 0,
+                v: 2,
+                weight: 6,
+            },
+        ],
+    });
+
+    let duals = try_initialize_duals(&graph).expect("dual initialization should succeed");
+
+    assert_eq!(duals.try_get(0).unwrap(), 6);
+    assert_eq!(duals.try_get(1).unwrap(), 10);
+    assert_eq!(duals.try_get(2).unwrap(), 6);
+}
+
+#[test]
+fn initialized_duals_produce_non_negative_slack() {
+    let graph = EdmondsGraph::from_graph(&Graph {
+        nodes: vec![
+            Node {
+                id: 0,
+                x: 0.0,
+                y: 0.0,
+                z: None,
+            },
+            Node {
+                id: 1,
+                x: 0.0,
+                y: 0.0,
+                z: None,
+            },
+            Node {
+                id: 2,
+                x: 0.0,
+                y: 0.0,
+                z: None,
+            },
+        ],
+        edges: vec![
+            Edge {
+                u: 0,
+                v: 1,
+                weight: 10,
+            },
+            Edge {
+                u: 0,
+                v: 2,
+                weight: 6,
+            },
+            Edge {
+                u: 1,
+                v: 2,
+                weight: 8,
+            },
+        ],
+    });
+
+    let duals = try_initialize_duals(&graph).expect("dual initialization should succeed");
+
+    for u in 0..graph.adjacency.len() {
+        for v in graph.neighbors(u) {
+            let slack = duals.try_slack(&graph, u, v).expect("slack should compute");
+
+            assert!(slack >= 0, "negative slack on edge ({u}, {v}): {slack}");
+        }
+    }
 }
