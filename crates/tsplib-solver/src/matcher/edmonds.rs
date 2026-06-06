@@ -1,5 +1,5 @@
 //! This module implements the Edmonds' Blossom algorithm for finding a minimum weight perfect matching in a graph.
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
 
 use tsplib_core::models::{Edge, Graph, TsplibInstance};
 
@@ -95,6 +95,29 @@ enum NodeKind {
     Original(usize),
     /// A pseudonode formed by shrinking the recorded circuit.
     Blossom(BlossomData),
+}
+
+/// Result of growing the alternating tree from one root over equality edges.
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum SearchOutcome {
+    /// The matching was enlarged along a tight augmenting path.
+    Augmented,
+
+    /// A tight edge joins two even nodes (`v, w in B(T)`): a blossom to shrink.
+    /// Carries the two derived-node endpoints.
+    BlossomEdge(usize, usize),
+
+    /// An odd pseudonose in `A(T)` has `y == 0` and should be expanded.
+    /// Carries the pseudonode id.
+    Expand(usize),
+
+    /// No equality-edge step applies, but the tree is not frustrated,
+    /// so a dual change could create new tight edges.
+    DualChange,
+
+    /// No equality-edge step applies and no dual change can help (the tree is "frustrated").
+    /// For complete, even inputs this only happens transiently. The outer loop treats it together with `DualChange`.
+    Frustrated,
 }
 
 impl PerfectMatchingAlgorithm for WeightedEdmondsMatching {
@@ -331,6 +354,128 @@ impl<'a> DerivedGraph<'a> {
     ///   This mapping is crucial for navigating between the original graph and the derived graph, especially when handling blossoms and their expansions.
     fn derived_of_base(&self, base_node: usize) -> usize {
         self.base_to_derived[base_node]
+    }
+
+    /// Checks if a given vertex in the derived graph is currently unmatched (exposed).
+    ///
+    /// # Arguments
+    /// * `v` - The index of the vertex in the derived graph to check.
+    ///
+    /// # Returns
+    /// * `bool` - `true` if the vertex is unmatched (exposed), `false` if it is currently
+    ///   matched to another vertex in the derived graph.
+    fn is_exposed(&self, v: usize) -> bool {
+        self.mate[v].is_none()
+    }
+
+    /// Checks if the edge between two vertices in the derived graph is tight, meaning its slack is zero.
+    ///
+    /// # Arguments
+    /// * `u` - The index of the first vertex in the derived graph.
+    /// * `v` - The index of the second vertex in the derived graph.
+    ///
+    /// # Returns
+    /// * `bool` - `true` if the edge between `u` and `v` is tight (i.e., its slack is zero),
+    ///   `false` if it is not tight or if the edge does not exist in the derived graph.
+    fn is_tight(&self, u: usize, v: usize) -> bool {
+        self.slack(u, v) == Some(0)
+    }
+
+    /// Resets the alternating tree state by clearing all labels and parent pointers in the derived graph.
+    fn clear_tree(&mut self) {
+        for v in 0..self.label.len() {
+            self.label[v] = Label::Free;
+            self.parent[v] = None;
+        }
+    }
+
+    fn grow_tree(&mut self, root: usize) -> Result<SearchOutcome, MatcherError> {
+        debug_assert!(self.active[root] && self.is_exposed(root));
+
+        self.label[root] = Label::Even;
+        let mut queue: VecDeque<usize> = VecDeque::new();
+        queue.push_back(root);
+
+        while let Some(v) = queue.pop_front() {
+            // Only even nodes expand their incident edges
+            if self.label[v] != Label::Even {
+                continue;
+            }
+
+            // Clone the neighbour list to avoid borrowing self while mutating
+            let neighbours = self.adjacency[v].clone();
+            for w in neighbours {
+                if !self.active[w] || w == v {
+                    continue;
+                }
+                // only euqality edges participate
+                if !self.is_tight(v, w) {
+                    continue;
+                }
+
+                match self.label[w] {
+                    Label::Even => {
+                        // v, w both in B(T): tight edge closes an odd circuit
+                        return Ok(SearchOutcome::BlossomEdge(v, w));
+                    }
+
+                    Label::Odd => {
+                        // Edge into an odd node gives nothing: skip
+                    }
+
+                    Label::Free => {
+                        if self.is_exposed(w) {
+                            // Tight augmenting path root -- _> v -- w (exposed)
+                            self.parent[w] = Some(v);
+                            self.augment_to_root(w)?;
+                            return Ok(SearchOutcome::Augmented);
+                        }
+
+                        // Extend the tree: w becomes odd, its mate even
+                        let mate = self.mate[w].ok_or(MatcherError::MissingMate(w))?;
+                        self.label[w] = Label::Odd;
+                        self.parent[w] = Some(v);
+                        self.label[mate] = Label::Even;
+                        self.parent[mate] = Some(w);
+                        queue.push_back(mate);
+                    }
+                }
+            }
+        }
+
+        // Queue exhausted with no equality-edge step available.
+        // A dual change is what can unblock progress.
+        Ok(SearchOutcome::DualChange)
+    }
+
+    fn augment_to_root(&mut self, leaf: usize) -> Result<(), MatcherError> {
+        let mut path = Vec::new();
+        let mut current = Some(leaf);
+
+        while let Some(node) = current {
+            path.push(node);
+            current = self.parent[node];
+        }
+
+        // The path should always have at least two nodes: the exposed leaf and its parent in the tree.
+        if path.len() < 2 {
+            return Err(MatcherError::InvalidAugmentingPath);
+        }
+
+        let mut i = 0;
+        while i + 1 < path.len() {
+            let a = path[i];
+            let b = path[i + 1];
+
+            // Flip the matching along the path: if i is even, we add the edge a-b to the matching; if i is odd, we remove it.
+            if i.is_multiple_of(2) {
+                self.mate[a] = Some(b);
+                self.mate[b] = Some(a);
+            }
+            i += 1;
+        }
+
+        Ok(())
     }
 }
 
