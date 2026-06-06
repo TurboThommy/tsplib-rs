@@ -1,5 +1,8 @@
 //! This module implements the Edmonds' Blossom algorithm for finding a minimum weight perfect matching in a graph.
-use std::collections::{HashMap, VecDeque};
+use std::{
+    collections::{HashMap, VecDeque},
+    io::SeekFrom::Current,
+};
 
 use tsplib_core::models::{Edge, Graph, TsplibInstance};
 
@@ -133,9 +136,13 @@ impl PerfectMatchingAlgorithm for WeightedEdmondsMatching {
         let mut odd_vertices = odd_vertices.to_vec();
         odd_vertices.sort_unstable();
 
-        let _graph = try_build_complete_graph_for_vertices(&odd_vertices, problem)?;
+        let graph = try_build_complete_graph_for_vertices(&odd_vertices, problem)?;
+        let base = BaseGraph::from_graph(&graph);
 
-        todo!("WeightedEdmondsMatching is not implemented yet")
+        let mut derived = DerivedGraph::new(&base);
+        derived.try_find_matching()?;
+
+        base.try_matching_to_edges(&derived.mate)
     }
 }
 
@@ -223,7 +230,7 @@ impl BaseGraph {
     /// # Returns
     /// * `Result<Vec<Edge>, MatcherError>` - A result containing a vector of `Edge` instances representing the matched edges
     ///   in terms of TSPLIB node IDs and original weights, or an error if the mate vector is invalid or if any edge is missing.
-    fn try_matching_to_edge(&self, mate: &[Option<usize>]) -> Result<Vec<Edge>, MatcherError> {
+    fn try_matching_to_edges(&self, mate: &[Option<usize>]) -> Result<Vec<Edge>, MatcherError> {
         let mut edges = Vec::with_capacity(self.node_count / 2);
 
         for (u, &mate_u) in mate.iter().enumerate() {
@@ -389,6 +396,23 @@ impl<'a> DerivedGraph<'a> {
         }
     }
 
+    /// Grows the alternating tree from a given root vertex over tight edges in the derived graph,
+    /// looking for an augmenting path, a blossom to shrink, or an odd pseudonode to expand.
+    ///
+    /// # Arguments
+    /// * `root` - The index of the root vertex from which to grow the alternating tree. This vertex must be active and exposed.
+    ///
+    /// # Returns
+    /// * `Result<SearchOutcome, MatcherError>` - A result containing the outcome of the search, which can be one of the following:
+    ///   - `SearchOutcome::Augmented`: An augmenting path was found and the matching was enlarged.
+    ///   - `SearchOutcome::BlossomEdge(v, w)`: A tight edge was found joining two even nodes, indicating a blossom to shrink,
+    ///     with `v` and `w` being the endpoints of the edge.
+    ///   - `SearchOutcome::Expand(v)`: An odd pseudonode with zero dual value was found, indicating a pseudonode to expand,
+    ///     with `v` being the index of the pseudonode.
+    ///   - `SearchOutcome::DualChange`: No equality-edge step applies, but the tree is not frustrated, so a dual change could create new tight edges.
+    ///
+    /// # Preconditions
+    /// The `root`vertex must be active and exposed in the derived graph. The function `clear_tree` must have been called before.
     fn grow_tree(&mut self, root: usize) -> Result<SearchOutcome, MatcherError> {
         debug_assert!(self.active[root] && self.is_exposed(root));
 
@@ -448,6 +472,16 @@ impl<'a> DerivedGraph<'a> {
         Ok(SearchOutcome::DualChange)
     }
 
+    /// Augments the matching along the path from a given exposed leaf vertex up to the root of the alternating tree.
+    ///
+    /// # Arguments
+    /// * `leaf` - The index of the exposed leaf vertex from which to start the augmentation.
+    ///   This vertex must be part of the alternating tree and must be exposed.
+    ///
+    /// # Returns
+    /// * `Result<(), MatcherError>` - A result indicating success or failure of the augmentation process.
+    ///   Returns `Ok(())` if the augmentation was successful, or an error if the mate vector is invalid
+    ///   or if the path from the leaf to the root is not properly formed.
     fn augment_to_root(&mut self, leaf: usize) -> Result<(), MatcherError> {
         let mut path = Vec::new();
         let mut current = Some(leaf);
@@ -477,6 +511,116 @@ impl<'a> DerivedGraph<'a> {
 
         Ok(())
     }
+
+    /// Performs a dual change. Computes:
+    /// * `eps1 = min slack(e)` over edges `e` joining `B(T)` to a node not in the tree
+    /// * `eps2 = min slack(e)/2` over edges joining two nodes of `B(T)`
+    /// * `eps3 = min y_v` over odd pseudonodes in `A(T)`
+    ///
+    /// Then shifts `y` by `eps = min(eps1, eps2, eps3)`: `+eps` on even nodes, `-eps` on odd nodes, unchaged elsewhere.
+    /// This keeps matching and tree edges tight, drives `B(T)->outside` or `B(T)->B(T)` edge tight and preserves dual feasibility.
+    ///
+    /// # Returns
+    /// * `Result<(), MatcherError>` - A result indicating success or failure of the dual change process.
+    ///   Returns `Ok(())` if the dual change was successful, or an error if no solution can be found for the matching problem.
+    ///
+    /// # Preconditions
+    /// Only call this after a call to `grow_tree` reported that nop equality-edge step applies.
+    fn dual_change(&mut self) -> Result<(), MatcherError> {
+        let n = self.total_nodes();
+        let mut eps: Option<i64> = None;
+
+        // eps1 (B(T)->outside) and eps2 (B(T)->B(T)) from even nodes incident edges
+        for v in 0..n {
+            if !self.active[v] || self.label[v] != Label::Even {
+                continue;
+            }
+
+            for w in self.adjacency[v].clone() {
+                if !self.active[w] || w == v {
+                    continue;
+                }
+
+                let Some(slack) = self.slack(v, w) else {
+                    continue;
+                };
+
+                match self.label[w] {
+                    Label::Free => eps = Some(take_min(eps, slack)),
+
+                    Label::Even => {
+                        // Only consider each edge once
+                        if v < w {
+                            debug_assert!(
+                                slack % 2 == 0,
+                                "B(T)->B(T) slack must be even under x2 scaling"
+                            );
+                            eps = Some(take_min(eps, slack / 2));
+                        }
+                    }
+
+                    // edges into A(T) don't affect eps
+                    Label::Odd => {}
+                }
+            }
+        }
+
+        // eps3: odd pseudonodes must keep y >= 0 (so they can be expanded when theor dual reached 0)
+        for v in 0..n {
+            if self.active[v] && self.label[v] == Label::Odd && self.is_pseudonode(v) {
+                eps = Some(take_min(eps, self.duals[v]));
+            }
+        }
+
+        // No candidate anywhere means the tree is frustrated:
+        // B(T) reaches nothing outside A(T). For a complete graph with an even number of
+        // nodes this should not occur. Treat is as "no perfect matching".
+        let eps = eps.ok_or(MatcherError::NoSolution)?;
+
+        for v in 0..n {
+            if !self.active[v] {
+                continue;
+            }
+            match self.label[v] {
+                Label::Even => self.duals[v] += eps,
+                Label::Odd => self.duals[v] -= eps,
+                Label::Free => {}
+            }
+        }
+
+        Ok(())
+    }
+
+    /// Drives the algorithm to a perfect matching of the derived graph, leaving the result in `self.mate`.
+    /// For each exposed node an alternating tree is grown, performing dual changes as needed until the node is
+    /// matched by an augmenting path.
+    ///
+    /// # Returns
+    /// * `Result<(), MatcherError>` - A result indicating success or failure of the matching process.
+    fn try_find_matching(&mut self) -> Result<(), MatcherError> {
+        loop {
+            let Some(root) =
+                (0..self.total_nodes()).find(|&v| self.active[v] && self.is_exposed(v))
+            else {
+                // every active node is matched
+                return Ok(());
+            };
+
+            // Grow a tree from this root, changing duals until it augments
+            loop {
+                self.clear_tree();
+                match self.grow_tree(root)? {
+                    SearchOutcome::Augmented => break,
+                    SearchOutcome::DualChange => self.dual_change()?,
+                    SearchOutcome::Frustrated => return Err(MatcherError::NoSolution),
+                    SearchOutcome::BlossomEdge(_, _) | SearchOutcome::Expand(_) => {
+                        // Shrinking and expanding are not implemented yet
+                        todo!("blossom handling (shrink/expand)")
+                    }
+                }
+            }
+        }
+    }
 }
 
 /// Helper function to create a consistent key for an edge between two vertices, regardless of their order.
@@ -489,6 +633,22 @@ impl<'a> DerivedGraph<'a> {
 /// * `(usize, usize)` - A tuple representing the edge between the two vertices, with the smaller index first to ensure consistency.
 fn edge_key(u: usize, v: usize) -> (usize, usize) {
     if u < v { (u, v) } else { (v, u) }
+}
+
+/// Helper function to update the current minimum value with a candidate value, returning the smaller of the two.
+///
+/// # Arguments
+/// * `current` - An `Option<i64>` representing the current minimum value, which may be `None` if no minimum has been established yet.
+/// * `candidate` - An `i64` representing the candidate value to compare against the current minimum.
+///
+/// # Returns
+/// * `i64` - The smaller of the current minimum value (if it exists) and the candidate value. If `current` is `None`,
+///   the function returns the candidate value.
+fn take_min(current: Option<i64>, candidate: i64) -> i64 {
+    match current {
+        Some(value) => value.min(candidate),
+        None => candidate,
+    }
 }
 
 /// Builds a complete graph for the given vertices based on the distances in the TSP instance.
