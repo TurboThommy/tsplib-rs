@@ -1,6 +1,6 @@
 //! This module implements the Edmonds' Blossom algorithm for finding a minimum weight perfect matching in a graph.
 use std::{
-    collections::{HashMap, VecDeque},
+    collections::{HashMap, HashSet, VecDeque},
     io::SeekFrom::Current,
 };
 
@@ -31,10 +31,6 @@ struct BlossomData {
     /// The derived-node ids forming the shrunk circuit, in cyclic order as they
     /// were at shrink time. `cycle[0` is the base of the blossom.
     cycle: Vec<usize>,
-    /// The dual offset `y_s` that was subtracted from the boundary edges of
-    /// each circuit member `s` at shrink time (`c'_vw -= y_v`). Expansion adds
-    /// it back (`c'_st += y_s`). Keyed by circuit-member derived-node id.
-    dual_offset: HashMap<usize, i64>,
 }
 
 /// The mutable derived graph `G'` together with all per-node algorithm state.
@@ -78,6 +74,12 @@ struct DerivedGraph<'a> {
     /// For each *original* base node, the id of the outermost active derived
     /// node currently containing it. Maps base nodes into the current `G'`.
     base_to_derived: Vec<usize>,
+
+    /// For each boundary edge `(C, t)` of a pseudonode `C` (canonical key),
+    /// records `(C, s)` where `s` is the cycle member of `C` that owns the
+    /// edge. Used when lifting the matching to resolve which inner node a
+    /// pseudonode's external match attaches to.
+    cmember: HashMap<(usize, usize), (usize, usize)>,
 }
 
 /// Alternating-tree label of a derived node. `B(T)` = `Even`, `A(T)` = `Odd`
@@ -233,10 +235,15 @@ impl BaseGraph {
     fn try_matching_to_edges(&self, mate: &[Option<usize>]) -> Result<Vec<Edge>, MatcherError> {
         let mut edges = Vec::with_capacity(self.node_count / 2);
 
-        for (u, &mate_u) in mate.iter().enumerate() {
-            let Some(v) = mate_u else {
+        for u in 0..self.node_count {
+            let Some(v) = mate[u] else {
                 return Err(MatcherError::InvalidAugmentingPath);
             };
+
+            // A correct lift leaved every original node matched to another
+            if v >= self.node_count {
+                return Err(MatcherError::InvalidAugmentingPath);
+            }
 
             // To avoid duplicates, only consider edges where u < v.
             if u >= v {
@@ -296,6 +303,7 @@ impl<'a> DerivedGraph<'a> {
             parent: vec![None; n],
             mate: vec![None; n],
             base_to_derived: (0..n).collect(),
+            cmember: HashMap::new(),
         }
     }
 
@@ -599,11 +607,11 @@ impl<'a> DerivedGraph<'a> {
     /// * `Result<(), MatcherError>` - A result indicating success or failure of the matching process.
     fn try_find_matching(&mut self) -> Result<(), MatcherError> {
         loop {
-            let Some(root) =
+            let Some(mut root) =
                 (0..self.total_nodes()).find(|&v| self.active[v] && self.is_exposed(v))
             else {
                 // every active node is matched
-                return Ok(());
+                return self.lift_matching();
             };
 
             // Grow a tree from this root, changing duals until it augments
@@ -611,15 +619,222 @@ impl<'a> DerivedGraph<'a> {
                 self.clear_tree();
                 match self.grow_tree(root)? {
                     SearchOutcome::Augmented => break,
-                    SearchOutcome::DualChange => self.dual_change()?,
+
+                    SearchOutcome::DualChange => {
+                        self.dual_change()?;
+
+                        if self.needs_mid_search_expand() {
+                            todo!("mid-search pseudonode expansion")
+                        }
+                    }
+
+                    SearchOutcome::BlossomEdge(u, v) => {
+                        let c = self.shrink_blossom(u, v)?;
+
+                        // if the root was absorbed into the new pseudonode, the pseudonode is the new root
+                        if !self.active[root] {
+                            root = c;
+                        }
+                    }
+
+                    SearchOutcome::Expand(_) => {
+                        todo!("mid-search pseudonode expansion")
+                    }
+
                     SearchOutcome::Frustrated => return Err(MatcherError::NoSolution),
-                    SearchOutcome::BlossomEdge(_, _) | SearchOutcome::Expand(_) => {
-                        // Shrinking and expanding are not implemented yet
-                        todo!("blossom handling (shrink/expand)")
+                }
+            }
+        }
+    }
+
+    /// Reconstruct the odd circuit (blossom) closed by the tight edge `u -- v` between two even nodes.
+    ///
+    /// # Arguments
+    /// * `u` - The index of the first vertex in the derived graph, which is an even node in the alternating tree.
+    /// * `v` - The index of the second vertex in the derived graph, which is also an even node in the alternating tree.
+    ///
+    /// # Returns
+    /// * `Result<Vec<usize>, MatcherError>` - A result containing the cycle as derived-node ids in cyclic order with the base first.
+    ///   If the cycle cannot be reconstructed due to an error in the tree structure, an error is returned.
+    fn find_blossom_cycle(&self, u: usize, v: usize) -> Result<Vec<usize>, MatcherError> {
+        // path from u to root
+        let mut u_path = Vec::new();
+        let mut cur = Some(u);
+
+        while let Some(node) = cur {
+            u_path.push(node);
+            cur = self.parent[node];
+        }
+
+        let u_index: HashMap<usize, usize> =
+            u_path.iter().enumerate().map(|(i, &x)| (x, i)).collect();
+
+        // walk up from v until reaching a node on u's path -> LCA
+        let mut v_path = Vec::new();
+        let mut cur = Some(v);
+        let lca = loop {
+            match cur {
+                Some(node) if !u_index.contains_key(&node) => {
+                    v_path.push(node);
+                    cur = self.parent[node];
+                }
+                Some(node) => break node,
+                None => return Err(MatcherError::PathReconstructionError),
+            }
+        };
+
+        // Cycle: base(=lca), then lca's-child..u (reversed u-branch below lca), then v..lca's-child-on-v-side (v_path).
+        // This lists the odd circuit in cyclic order with the base first.
+        let lca_pos = u_index[&lca];
+        let mut cycle = Vec::with_capacity(lca_pos + v_path.len() + 1);
+        cycle.push(lca);
+        for &node in u_path[..lca_pos].iter().rev() {
+            cycle.push(node);
+        }
+        cycle.extend(v_path);
+        Ok(cycle)
+    }
+
+    /// Shrinks the blossom formed by the tight edge `u -- v` into a new pseudonode, mutating the derived graph in-place.
+    ///
+    /// # Arguments
+    /// * `u` - The index of the first vertex in the derived graph, which is an even node in the alternating tree and
+    ///   one endpoint of the tight edge that closes the blossom.
+    /// * `v` - The index of the second vertex in the derived graph, which is also an even node in the alternating tree and
+    ///   the other endpoint of the tight edge that closes the blossom.
+    ///
+    /// # Returns
+    /// * `Result<usize, MatcherError>` - A result containing the index of the new pseudonode if successful, or an error if the operation fails.
+    fn shrink_blossom(&mut self, u: usize, v: usize) -> Result<usize, MatcherError> {
+        let cycle = self.find_blossom_cycle(u, v)?;
+        let base = cycle[0];
+        let in_cycle: HashSet<usize> = cycle.iter().copied().collect();
+        let c = self.total_nodes();
+
+        // Best boundary edge to each external neighbour, with the cycle member that owns it
+        let mut best: HashMap<usize, (i64, usize)> = HashMap::new();
+        for &s in &cycle {
+            for w in self.adjacency[s].clone() {
+                if in_cycle.contains(&w) || !self.active[w] {
+                    continue;
+                }
+
+                let Some(weight) = self.weight(s, w) else {
+                    continue;
+                };
+
+                let val = weight - self.duals[s];
+                match best.get(&w) {
+                    Some(&(best_val, _)) if best_val <= val => {}
+                    _ => {
+                        best.insert(w, (val, s));
                     }
                 }
             }
         }
+
+        // Append the pseudonode
+        self.kind.push(NodeKind::Blossom(BlossomData {
+            cycle: cycle.clone(),
+        }));
+        self.active.push(true);
+        self.adjacency.push(Vec::new());
+        self.duals.push(0);
+        self.label.push(Label::Even);
+        self.parent.push(self.parent[base]);
+        let base_mate = self.mate[base];
+        self.mate.push(base_mate);
+
+        if let Some(m) = base_mate {
+            self.mate[m] = Some(c);
+        }
+
+        // Install boundary edges
+        for (t, (val, s)) in best {
+            self.weights.insert(edge_key(c, t), val);
+            self.adjacency[c].push(t);
+            self.adjacency[t].push(c);
+            // remember which cycle member owns this boundary edge for lifting
+            self.cmember.insert(edge_key(c, t), (c, s));
+        }
+        self.adjacency[c].sort_unstable();
+
+        // Freeze cycle members: inactive, but duals and internal edges remain in place so the cycle stays tight when expanded
+        for &s in &cycle {
+            self.active[s] = false;
+        }
+
+        Ok(c)
+    }
+
+    /// Lifts the matching from the derived graph back to the base graph by expanding all pseudonodes (blossoms) in reverse order of creation.
+    ///
+    /// # Returns
+    /// * `Result<(), MatcherError>` - A result indicating success or failure of the lifting process.
+    fn lift_matching(&mut self) -> Result<(), MatcherError> {
+        for c in (self.base.node_count..self.total_nodes()).rev() {
+            if !self.active[c] || !self.is_pseudonode(c) {
+                continue;
+            }
+
+            let cycle = match &self.kind[c] {
+                NodeKind::Blossom(data) => data.cycle.clone(),
+                NodeKind::Original(_) => continue,
+            };
+
+            // the external node c is matched to
+            let m = self.mate[c].ok_or(MatcherError::InvalidAugmentingPath)?;
+
+            // the cycle member owning the edge from c to m
+            let inner = match self.cmember.get(&edge_key(c, m)) {
+                Some(&(_, s)) => s,
+                None => cycle[0],
+            };
+
+            // match that member to m
+            self.mate[inner] = Some(m);
+            self.mate[m] = Some(inner);
+
+            // Pair up the remaining cycle members around the cycle starting just after `inner` (even-length path)
+            let len = cycle.len();
+            let j = cycle
+                .iter()
+                .position(|&x| x == inner)
+                .ok_or(MatcherError::NodeNotInBlossom(inner))?;
+
+            let rest: Vec<usize> = (0..len - 1).map(|k| cycle[(j + 1 + k) % len]).collect();
+            let mut k = 0;
+            while k + 1 < rest.len() {
+                let a = rest[k];
+                let b = rest[k + 1];
+                self.mate[a] = Some(b);
+                self.mate[b] = Some(a);
+                k += 2;
+            }
+
+            // Reactivate the members: retire the pseudonode
+            for &s in &cycle {
+                self.active[s] = true;
+            }
+            self.active[c] = false;
+        }
+
+        Ok(())
+    }
+
+    /// Checks if there is an odd pseudonode in A(T) with zero dual value that should be expanded before the next grow step.
+    ///
+    /// # Returns
+    /// * `bool` - `true` if there is at least one odd pseudonode in A(T) with zero dual value that should be expanded,
+    ///   `false` otherwise. This condition indicates that a pseudonode expansion should be performed before the next grow step
+    ///   in the algorithm, as it may lead to new tight edges and progress in finding an augmenting path.
+    fn needs_mid_search_expand(&self) -> bool {
+        (0..self.total_nodes()).any(|v| {
+            self.active[v]
+                && self.label[v] == Label::Odd
+                && self.is_pseudonode(v)
+                && self.duals[v] == 0
+        })
     }
 }
 
