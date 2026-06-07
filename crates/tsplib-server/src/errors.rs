@@ -24,6 +24,8 @@ pub enum ServerError {
     MetadataParseError(String),
     #[error("Unsupported edge weight type for problem: {0}")]
     UnsupportedEdgeWeightType(String),
+    #[error("No known solution cost found for problem instance: {0}")]
+    SolutionProblemIdNotFound(String),
 }
 
 impl IntoResponse for ServerError {
@@ -62,6 +64,11 @@ impl IntoResponse for ServerError {
             ServerError::UnsupportedEdgeWeightType(_) => {
                 tracing::error!(error = %self, "Unsupported edge weight type for problem");
                 (StatusCode::INTERNAL_SERVER_ERROR, self.to_string())
+            }
+
+            ServerError::SolutionProblemIdNotFound(_) => {
+                tracing::error!(error = %self, "No known solution cost found for problem instance");
+                (StatusCode::NOT_FOUND, self.to_string())
             }
         };
         (status, error_message).into_response()

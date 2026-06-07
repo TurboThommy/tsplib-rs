@@ -35,6 +35,7 @@ async fn main() {
         .merge(routes::cancel::router())
         .merge(routes::mst::router())
         .merge(routes::mwpm::router())
+        .merge(routes::solutions::router())
         .layer(
             TraceLayer::new_for_http()
                 .make_span_with(DefaultMakeSpan::new().level(Level::INFO))
