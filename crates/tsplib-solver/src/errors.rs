@@ -102,7 +102,7 @@ pub enum MatcherError {
     #[error(
         "An internal invariant of the matcher was violated. This should never happen. Details: {0}"
     )]
-    Internal(String),
+    Internal(&'static str),
     #[error("Blossom expansion is not implemented in this matcher.")]
     BlossomExpansionNotImplemented,
 }
