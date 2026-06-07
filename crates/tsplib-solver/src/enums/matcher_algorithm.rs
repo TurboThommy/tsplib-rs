@@ -12,4 +12,5 @@ pub enum MatcherAlgorithm {
     Greedy,
     Recursive,
     BlossomV,
+    EdmondsBlossom,
 }

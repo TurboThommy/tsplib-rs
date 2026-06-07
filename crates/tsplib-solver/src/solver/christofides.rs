@@ -1,5 +1,6 @@
 //! This module implements the Christofides algorithm for solving the Traveling Salesman Problem (TSP).
 
+use crate::WeightedEdmondsMatching;
 use crate::matcher::{BlossomVMatching, RecursiveMatching};
 use crate::{
     PerfectMatchingAlgorithm, SolverOptions, TspSolver,
@@ -108,6 +109,7 @@ impl TspSolver for Christofides {
             MatcherAlgorithm::Greedy => Box::new(GreedyMatching::new()),
             MatcherAlgorithm::BlossomV => Box::new(BlossomVMatching::new()),
             MatcherAlgorithm::Recursive => Box::new(RecursiveMatching::new()),
+            MatcherAlgorithm::EdmondsBlossom => Box::new(WeightedEdmondsMatching::new()),
         };
 
         let matching = matcher.try_compute(&odd_vertices, problem)?;
