@@ -9,6 +9,7 @@ mod recursive;
 pub use recursive::RecursiveMatching;
 
 mod edmonds;
+pub use edmonds::WeightedEdmondsMatching;
 
 /// This module defines the `BlossomVMatching` struct, which implements the Blossom V algorithm for finding a minimum weight perfect matching in a graph.
 /// The implementation is only available if the `blossom-v` feature is enabled.

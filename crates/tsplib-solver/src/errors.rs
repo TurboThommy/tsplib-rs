@@ -93,7 +93,16 @@ pub enum MatcherError {
     MissingEdge(usize, usize),
     #[error("No solution found for the matching problem.")]
     NoSolution,
-
+    #[error("Node {0} was left unmatched by the final lift (no perfect matching produced).")]
+    NodeUnmatched(usize),
+    #[error(
+        "The final matching still referenced a pseudonode slot, the lift was incomplete. (node: {0}, mate: {1})"
+    )]
+    MateNotLifted(usize, usize),
+    #[error(
+        "An internal invariant of the matcher was violated. This should never happen. Details: {0}"
+    )]
+    Internal(String),
     #[error("Blossom expansion is not implemented in this matcher.")]
     BlossomExpansionNotImplemented,
 }
