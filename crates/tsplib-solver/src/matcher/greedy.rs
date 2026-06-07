@@ -3,6 +3,7 @@
 use crate::{PerfectMatchingAlgorithm, errors::MatcherError};
 use tsplib_core::models::Edge;
 
+#[derive(Default)]
 pub struct GreedyMatching {}
 
 impl GreedyMatching {

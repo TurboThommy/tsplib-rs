@@ -10,5 +10,7 @@ use strum::EnumIter;
 pub enum MatcherAlgorithm {
     #[default]
     Greedy,
+    Recursive,
     BlossomV,
+    EdmondsBlossom,
 }

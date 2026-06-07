@@ -62,6 +62,49 @@ pub enum MatcherError {
         "Blossom V algorithm is not available. Ensure that the blossom-v feature is enabled and the library is properly set up."
     )]
     BlossomVNotAvailable,
+    #[error("Too many odd vertices ({0}) for matcher. Maximum allowed is {1}.")]
+    TooManyOddVertices(usize, usize),
+    #[error("Invalid augmenting path found during matching.")]
+    InvalidAugmentingPath,
+    #[error("Path is not connected to root during reconstruction.")]
+    PathReconstructionError,
+    #[error("Expected matched node {0} to have a mate, but it was missing.")]
+    MissingMate(usize),
+    #[error(
+        "Node {0} is not connected to its least common ancestor {1} during path reconstruction."
+    )]
+    NodeNotConnectedToLca(usize, usize),
+
+    #[error("Node {0} is not in the blossom during path reconstruction.")]
+    NodeNotInBlossom(usize),
+    #[error("No alternating blossom path found between nodes {0} and {1}.")]
+    NoAlternatingBlossomPath(usize, usize),
+    #[error("Shrunk node {0} does not have a corresponding original node mapping.")]
+    ShrunkNodeNotMapped(usize),
+    #[error(
+        "Blossom node is at the boundary of the shrunk path and cannot be expanded. Position: {0}"
+    )]
+    BlossomNodeAtPathBoundary(usize),
+    #[error("No original edge found from external node {0} into blossom.")]
+    NoEdgeIntoBlossom(usize),
+    #[error("Invalid node index {0} for graph with {1} nodes.")]
+    InvalidNodeIndex(usize, usize),
+    #[error("Edge ({0}, {1}) does not exist in graph.")]
+    MissingEdge(usize, usize),
+    #[error("No solution found for the matching problem.")]
+    NoSolution,
+    #[error("Node {0} was left unmatched by the final lift (no perfect matching produced).")]
+    NodeUnmatched(usize),
+    #[error(
+        "The final matching still referenced a pseudonode slot, the lift was incomplete. (node: {0}, mate: {1})"
+    )]
+    MateNotLifted(usize, usize),
+    #[error(
+        "An internal invariant of the matcher was violated. This should never happen. Details: {0}"
+    )]
+    Internal(&'static str),
+    #[error("Blossom expansion is not implemented in this matcher.")]
+    BlossomExpansionNotImplemented,
 }
 
 impl From<InstanceError> for SolverError {
