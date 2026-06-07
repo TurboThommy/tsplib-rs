@@ -92,3 +92,10 @@ impl ProblemDescriptionResponse {
         })
     }
 }
+
+/// Response struct for the GET /solutions/{problemId} endpoint, containing the solution cost for a given problem instance
+#[derive(Debug, Serialize)]
+pub(crate) struct SolutionResponse {
+    pub id: String,
+    pub cost: i64,
+}

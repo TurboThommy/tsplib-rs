@@ -1,5 +1,5 @@
 //! Application state management for the TSP solver server.
-use std::sync::Arc;
+use std::{collections::HashMap, fs, sync::Arc};
 use tokio::sync::Mutex;
 use tokio_util::sync::CancellationToken;
 
@@ -14,6 +14,7 @@ pub enum ProcessingState {
 #[derive(Clone, Debug)]
 pub struct AppState {
     pub solver_state: Arc<Mutex<ProcessingState>>,
+    pub solutions: Arc<HashMap<String, i64>>,
 }
 
 impl AppState {
@@ -21,6 +22,30 @@ impl AppState {
     pub fn new() -> Self {
         AppState {
             solver_state: Arc::new(Mutex::new(ProcessingState::Idle)),
+            solutions: Arc::new(parse_solutions()),
         }
     }
+}
+
+fn parse_solutions() -> HashMap<String, i64> {
+    tracing::info!("Parsing solutions file from ./data directory");
+
+    let content = fs::read_to_string("./data/solutions")
+        .expect("Failed to read ./data/solutions (run from workspace root?)");
+
+    let solutions: HashMap<String, i64> = content
+        .lines()
+        .filter_map(|line| {
+            let (name, rest) = line.split_once(':')?;
+            let value = rest.split_whitespace().next()?.parse().ok()?;
+            Some((name.trim().to_string(), value))
+        })
+        .collect();
+
+    tracing::info!(
+        solutions = solutions.len(),
+        "Successfully parsed solution file"
+    );
+
+    solutions
 }
