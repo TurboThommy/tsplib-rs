@@ -1,2146 +1,397 @@
-use tsplib_core::models::{Edge, Node};
+//! Oracle-based property tests for the weighted perfect-matching algorithm.
 
-use super::*;
+#![cfg(test)]
 
-#[allow(clippy::needless_range_loop)]
-fn test_graph(adjacency: Vec<Vec<usize>>) -> EdmondsGraph {
-    let nodes = (0..adjacency.len())
-        .map(|id| Node {
-            id,
-            x: 0.0,
-            y: 0.0,
-            z: None,
+use std::collections::HashSet;
+
+use tsplib_core::{
+    enums::ProblemType,
+    models::{Edge, Node, TsplibInstance},
+};
+
+use crate::{
+    PerfectMatchingAlgorithm, RecursiveMatching, matcher::edmonds::WeightedEdmondsMatching,
+};
+
+/// Minimal deterministic PRNG (xorshift64*). Avoids a `rand` dev-dependency and
+/// keeps every failure reproducible from its seed.
+struct Rng(u64);
+
+impl Rng {
+    fn new(seed: u64) -> Self {
+        Rng(seed | 1) // avoid zero state
+    }
+
+    /// Generates the next random `u64` value using the xorshift64* algorithm.
+    fn next_u64(&mut self) -> u64 {
+        let mut x = self.0;
+        x ^= x >> 12;
+        x ^= x << 25;
+        x ^= x >> 27;
+        self.0 = x;
+        x.wrapping_mul(0x2545F4914F6CDD1D)
+    }
+
+    /// Generates a random `u64` value in the range `[0, bound)`.
+    ///
+    /// # Arguments
+    /// * `bound` - The upper bound (exclusive) for the generated random number.
+    ///
+    /// # Returns
+    /// * `u64` - A random number in the range `[0, bound)`.
+    fn below(&mut self, bound: u64) -> u64 {
+        self.next_u64() % bound
+    }
+}
+
+struct RandomInstance {
+    coords: Vec<(i64, i64)>,
+    instance: TsplibInstance,
+    /// Node ids (1-based), playing the role of "odd vertices"
+    vertices: Vec<usize>,
+}
+
+/// Calculates the Euclidean distance between two points in 2D space, rounding to the nearest integer.
+///
+/// # Arguments
+/// * `a` - The coordinates of the first point as a tuple `(i64, i64)`.
+/// * `b` - The coordinates of the second point as a tuple `(i64, i64)`.
+///
+/// # Returns
+/// * `i32` - The rounded Euclidean distance between the two points.
+fn euc_2d(a: (i64, i64), b: (i64, i64)) -> i32 {
+    {
+        let dx = (a.0 - b.0) as f64;
+        let dy = (a.1 - b.1) as f64;
+        (dx * dx + dy * dy).sqrt().round() as i32
+    }
+}
+
+fn random_instance(rng: &mut Rng, n: usize, coord_max: i64) -> RandomInstance {
+    assert!(
+        n.is_multiple_of(2),
+        "matching needs an even number of vertices"
+    );
+
+    let coords: Vec<(i64, i64)> = (0..n)
+        .map(|_| {
+            (
+                rng.below(coord_max as u64) as i64,
+                rng.below(coord_max as u64) as i64,
+            )
         })
-        .collect::<Vec<_>>();
+        .collect();
 
-    let mut edges = Vec::new();
-
-    for u in 0..adjacency.len() {
-        for &v in &adjacency[u] {
-            if u < v {
-                edges.push(Edge { u, v, weight: 1 });
-            }
+    let mut adjacency_matrix = vec![vec![0i32; n]; n];
+    for i in 0..n {
+        for j in (i + 1)..n {
+            let d = euc_2d(coords[i], coords[j]);
+            adjacency_matrix[i][j] = d;
+            adjacency_matrix[j][i] = d;
         }
     }
 
-    EdmondsGraph::from_graph(&Graph { nodes, edges })
+    let nodes: Vec<Node> = (0..n)
+        .map(|i| Node {
+            id: i + 1,
+            x: coords[i].0 as f64,
+            y: coords[i].1 as f64,
+            z: None,
+        })
+        .collect();
+
+    let instance = TsplibInstance {
+        problem_id: "oracle".to_string(),
+        name: "oracle".to_string(),
+        problem_type: ProblemType::TSP,
+        nodes,
+        adjacency_matrix,
+        fixed_edges: None,
+    };
+
+    RandomInstance {
+        coords,
+        instance,
+        vertices: (1..=n).collect(),
+    }
 }
 
-fn matching_weight(graph: &EdmondsGraph, matching: &MatchingState) -> i32 {
-    matching
-        .mate
+/// Sums edge weights by looking each one up in the instance, so the comparison
+/// does not trust the weight the matcher stored on the edge.
+///
+/// # Arguments
+/// * `edges` - A slice of `Edge` structs representing the edges in the matching.
+/// * `instance` - The `TsplibInstance` containing the distance information for the nodes.
+///
+/// # Returns
+/// * `i64` - The total cost of the matching, calculated by summing the distances of the edges as defined in the instance.
+fn matching_cost(edges: &[Edge], instance: &TsplibInstance) -> i64 {
+    edges
         .iter()
-        .enumerate()
-        .filter_map(|(u, &mate)| {
-            let v = mate?;
-            (u < v).then(|| graph.weight(u, v).unwrap())
+        .map(|e| {
+            i64::from(
+                instance
+                    .try_get_distance(e.u, e.v)
+                    .expect("matched edge must have a valid distance"),
+            )
         })
         .sum()
 }
 
-#[test]
-fn augment_path_toggles_matching_edges() {
-    let mut state = MatchingState::new(6);
+/// Asserts the edge set is a genuine perfect matching of vertices.
+///
+/// # Arguments
+/// * `edges` - A slice of `Edge` structs representing the edges in the matching.
+/// * `vertices` - A slice of vertex indices that should be covered by the matching.
+/// * `label` - A label for the assertion, used in error messages to identify which matcher is being tested.
+/// * `ctx` - Additional context for the assertion, included in error messages to help diagnose failures.
+fn assert_perfect(edges: &[Edge], vertices: &[usize], label: &str, ctx: &str) {
+    assert_eq!(
+        edges.len(),
+        vertices.len() / 2,
+        "{label} returned {} edges, expected {} ({ctx})",
+        edges.len(),
+        vertices.len() / 2
+    );
 
-    state.match_edge(1, 2);
-    state.match_edge(3, 4);
-
-    state.augment_path(&[0, 1, 2, 3, 4, 5]);
-
-    assert_eq!(state.mate[0], Some(1));
-    assert_eq!(state.mate[1], Some(0));
-
-    assert_eq!(state.mate[2], Some(3));
-    assert_eq!(state.mate[3], Some(2));
-
-    assert_eq!(state.mate[4], Some(5));
-    assert_eq!(state.mate[5], Some(4));
-}
-
-#[test]
-fn find_simple_augmenting_path_without_blossom() {
-    let graph = test_graph(vec![
-        vec![1],    // 0
-        vec![0, 2], // 1
-        vec![1, 3], // 2
-        vec![2, 4], // 3
-        vec![3, 5], // 4
-        vec![4],    // 5
-    ]);
-
-    let mut matching = MatchingState::new(6);
-    matching.match_edge(1, 2);
-    matching.match_edge(3, 4);
-
-    let path = search_alternating_tree(&graph, &matching, 0).expect("search should succeed");
-
-    match path {
-        SearchResult::AugmentingPath(vertices) => {
-            assert_eq!(vertices, vec![0, 1, 2, 3, 4, 5]);
-
-            matching.augment_path(&vertices);
-        }
-        _ => panic!("expected blossom"),
+    let mut seen = HashSet::new();
+    for e in edges {
+        assert!(
+            vertices.contains(&e.u) && vertices.contains(&e.v),
+            "{label} edge ({}, {}) uses a vertec outside the instance ({ctx})",
+            e.u,
+            e.v
+        );
+        assert!(seen.insert(e.u), "{label} covers {} twice ({ctx})", e.u);
+        assert!(seen.insert(e.v), "{label} covers {} twice ({ctx})", e.v);
     }
-
-    assert_eq!(matching.mate[0], Some(1));
-    assert_eq!(matching.mate[1], Some(0));
-    assert_eq!(matching.mate[2], Some(3));
-    assert_eq!(matching.mate[3], Some(2));
-    assert_eq!(matching.mate[4], Some(5));
-    assert_eq!(matching.mate[5], Some(4));
+    assert_eq!(
+        seen.len(),
+        vertices.len(),
+        "{label} does not cover all vertices ({ctx})"
+    );
 }
 
-#[test]
-fn find_lca_in_alternating_tree() {
-    let parent = vec![
-        None,    // 0 (root)
-        Some(0), // 1
-        Some(1), // 2
-        Some(0), // 3
-        Some(3), // 4
-    ];
-
-    let lca = find_lca(2, 4, &parent);
-
-    assert_eq!(lca, Some(0));
-}
-
-#[test]
-fn reconstruct_blossom_cycle() {
-    let parent = vec![
-        None,    // 0 root/lca
-        Some(0), // 1
-        Some(1), // 2 = u
-        Some(0), // 3
-        Some(3), // 4 = v
-    ];
-
-    let cycle =
-        try_reconstruct_blossom_cycle(2, 4, 0, &parent).expect("should reconstruct blossom cycle");
-
-    assert_eq!(cycle, vec![2, 1, 0, 3, 4]);
-}
-
-#[test]
-fn detect_simple_blossom_cycles() {
-    let graph = test_graph(vec![
-        vec![1, 3], // 0 root
-        vec![0, 2], // 1
-        vec![1, 4], // 2
-        vec![0, 4], // 3
-        vec![2, 3], // 4
-    ]);
-
-    let mut matching = MatchingState::new(5);
-    matching.match_edge(1, 2);
-    matching.match_edge(3, 4);
-
-    let result = search_alternating_tree(&graph, &matching, 0).expect("search should succeed");
-
-    match result {
-        SearchResult::Blossom { cycle, base, edge } => {
-            assert_eq!(cycle.len(), 5);
-            assert_eq!(base, 0);
-            assert!(matches!(edge, (2, 4) | (4, 2)));
-            assert!(cycle.contains(&0));
-            assert!(cycle.contains(&1));
-            assert!(cycle.contains(&2));
-            assert!(cycle.contains(&3));
-            assert!(cycle.contains(&4));
-        }
-        _ => panic!("expected blossom"),
-    }
-}
-
-fn brute_force_minimum_matching_weight(graph: &EdmondsGraph, vertices: &[usize]) -> Option<i32> {
-    if vertices.is_empty() {
-        return Some(0);
-    }
-
-    let u = vertices[0];
-    let mut best: Option<i32> = None;
-
-    for v_idx in 1..vertices.len() {
-        let v = vertices[v_idx];
-
-        let remaining = vertices
-            .iter()
-            .enumerate()
-            .filter_map(|(idx, &vertex)| (idx != 0 && idx != v_idx).then_some(vertex))
-            .collect::<Vec<_>>();
-
-        let Some(edge_weight) = graph.weight(u, v) else {
-            continue;
-        };
-
-        let Some(rest_weight) = brute_force_minimum_matching_weight(graph, &remaining) else {
-            continue;
-        };
-
-        let candidate = edge_weight + rest_weight;
-
-        best = Some(best.map_or(candidate, |current| current.min(candidate)));
-    }
-
-    best
-}
-
-#[test]
-fn shrink_graph_contracts_blossom_cycle() {
-    let graph = test_graph(vec![
-        vec![1, 3, 5], // 0
-        vec![0, 2],    // 1
-        vec![1, 4],    // 2
-        vec![0, 4],    // 3
-        vec![2, 3, 6], // 4
-        vec![0],       // 5 external
-        vec![4],       // 6 external
-    ]);
-
-    let blossom = Blossom::new(0, vec![2, 1, 0, 3, 4]);
-    let shrunk = shrink_graph(&graph, &blossom);
-
-    assert_eq!(shrunk.graph.adjacency.len(), 3);
-    assert_eq!(shrunk.blossom_node, 2);
-
-    assert_eq!(shrunk.original_to_shrunk[5], 0);
-    assert_eq!(shrunk.original_to_shrunk[6], 1);
-
-    for node in 0..=4 {
-        assert_eq!(shrunk.original_to_shrunk[node], shrunk.blossom_node);
-    }
-
-    assert!(shrunk.graph.adjacency[shrunk.blossom_node].contains(&0));
-    assert!(shrunk.graph.adjacency[shrunk.blossom_node].contains(&1));
-    assert!(shrunk.graph.adjacency[0].contains(&shrunk.blossom_node));
-    assert!(shrunk.graph.adjacency[1].contains(&shrunk.blossom_node));
-}
-
-#[test]
-fn shrink_matching_maps_external_matching_edge_to_blossom_node() {
-    let graph = test_graph(vec![
-        vec![1, 3, 5], // 0
-        vec![0, 2],    // 1
-        vec![1, 4],    // 2
-        vec![0, 4],    // 3
-        vec![2, 3, 6], // 4
-        vec![0],       // 5 external
-        vec![4],       // 6 external
-    ]);
-
-    let blossom = Blossom::new(0, vec![2, 1, 0, 3, 4]);
-    let shrunk = shrink_graph(&graph, &blossom);
-
-    let mut matching = MatchingState::new(7);
-    matching.match_edge(1, 2); // inside blossom
-    matching.match_edge(3, 4); // inside blossom
-    matching.match_edge(0, 5); // blossom matched to outside
-
-    let shrunk_matching = shrink_matching(&matching, &shrunk);
-
-    let external_5 = shrunk.original_to_shrunk[5];
-
-    assert_eq!(shrunk_matching.mate[shrunk.blossom_node], Some(external_5));
-    assert_eq!(shrunk_matching.mate[external_5], Some(shrunk.blossom_node));
-}
-
-#[test]
-fn can_shrink_detected_blossom() {
-    let graph = test_graph(vec![
-        vec![1, 3], // 0 root / blossom base
-        vec![0, 2], // 1
-        vec![1, 4], // 2
-        vec![0, 4], // 3
-        vec![2, 3], // 4
-    ]);
-
-    let mut matching = MatchingState::new(5);
-    matching.match_edge(1, 2);
-    matching.match_edge(3, 4);
-
-    let result = search_alternating_tree(&graph, &matching, 0).expect("search should succeed");
-
-    let SearchResult::Blossom { cycle, base, .. } = result else {
-        panic!("expected blossom");
-    };
-
-    let blossom = Blossom::new(base, cycle);
-    let shrunk = shrink_graph(&graph, &blossom);
-    let shrunk_matching = shrink_matching(&matching, &shrunk);
-
-    assert_eq!(blossom.base, 0);
-    assert_eq!(blossom.cycle.len(), 5);
-
-    assert_eq!(shrunk.graph.adjacency.len(), 1);
-    assert_eq!(shrunk.blossom_node, 0);
-
-    for node in 0..5 {
-        assert_eq!(shrunk.original_to_shrunk[node], shrunk.blossom_node);
-    }
-
-    assert!(shrunk.graph.adjacency[shrunk.blossom_node].is_empty());
-    assert!(shrunk_matching.mate[shrunk.blossom_node].is_none());
-}
-
-#[test]
-fn edmonds_finds_augmenting_path_without_blossom() {
-    let graph = test_graph(vec![
-        vec![1],    // 0
-        vec![0, 2], // 1
-        vec![1, 3], // 2
-        vec![2, 4], // 3
-        vec![3, 5], // 4
-        vec![4],    // 5
-    ]);
-
-    let mut matching = MatchingState::new(6);
-    matching.match_edge(1, 2);
-    matching.match_edge(3, 4);
-
-    let path = try_find_augmenting_path_edmonds(&graph, &matching, 0)
-        .expect("search should succeed")
-        .expect("augmenting path should exist");
-
-    assert_eq!(path, vec![0, 1, 2, 3, 4, 5]);
-}
-
-#[test]
-fn edmonds_detects_blossom() {
-    let graph = test_graph(vec![
-        vec![1, 3, 5], // 0 base
-        vec![0, 2],    // 1
-        vec![1, 4],    // 2
-        vec![0, 4],    // 3
-        vec![2, 3],    // 4
-        vec![0, 6],    // 5
-        vec![5],       // 6 exposed
-    ]);
-
-    let mut matching = MatchingState::new(7);
-    matching.match_edge(1, 2);
-    matching.match_edge(3, 4);
-    matching.match_edge(0, 5);
-
-    let result = search_alternating_tree(&graph, &matching, 6).expect("search should succeed");
-
-    let SearchResult::Blossom { cycle, base, .. } = result else {
-        panic!("expected blossom before shrinking");
-    };
-
-    let blossom = Blossom::new(base, cycle);
-    let shrunk = shrink_graph(&graph, &blossom);
-    let shrunk_matching = shrink_matching(&matching, &shrunk);
-    let shrunk_root = shrunk.original_to_shrunk[6];
-
-    let shrunk_result = search_alternating_tree(&shrunk.graph, &shrunk_matching, shrunk_root)
-        .expect("shrunk search should succeed");
-
-    assert!(matches!(shrunk_result, SearchResult::None));
-}
-
-#[test]
-fn blossom_cycle_index() {
-    let blossom = Blossom::new(0, vec![2, 1, 0, 3, 4]);
-
-    assert_eq!(blossom.cycle_index(2), Some(0));
-    assert_eq!(blossom.cycle_index(0), Some(2));
-    assert_eq!(blossom.cycle_index(4), Some(4));
-    assert_eq!(blossom.cycle_index(42), None);
-}
-
-#[test]
-fn blossom_cycle_paths_between() {
-    let blossom = Blossom::new(0, vec![2, 1, 0, 3, 4]);
-
-    let (forward, backward) = blossom
-        .cycle_paths_between(2, 4)
-        .expect("path should exist");
-
-    assert_eq!(forward, vec![2, 1, 0, 3, 4]);
-    assert_eq!(backward, vec![2, 4]);
-}
-
-#[test]
-fn detects_alternating_path() {
-    let mut matching = MatchingState::new(5);
-    matching.match_edge(1, 2);
-    matching.match_edge(3, 4);
-
-    assert!(is_alternating_path(&[0, 1, 2, 3, 4], &matching));
-    assert!(!is_alternating_path(&[0, 1, 3, 4], &matching));
-}
-
-#[test]
-fn chooses_alternating_blossom_path() {
-    let blossom = Blossom::new(0, vec![2, 1, 0, 3, 4]);
-
-    let mut matching = MatchingState::new(5);
-    matching.match_edge(1, 2);
-    matching.match_edge(3, 4);
-
-    let path = try_choose_alternating_blossom_path(&blossom, 0, 4, &matching)
-        .expect("should choose alternating blossom path");
-
-    assert_eq!(path, vec![0, 3, 4]);
-}
-
-#[test]
-fn expand_blossom_between_entry_and_exit() {
-    let blossom = Blossom::new(0, vec![2, 1, 0, 3, 4]);
-
-    let mut matching = MatchingState::new(5);
-    matching.match_edge(1, 2);
-    matching.match_edge(3, 4);
-
-    let expanded =
-        try_expand_blossom_node(&blossom, 0, 4, &matching).expect("should expand blossom");
-
-    assert_eq!(expanded, vec![0, 3, 4]);
-}
-
-#[test]
-fn expands_path_through_blossom() {
-    let graph = test_graph(vec![
-        vec![1, 3, 5], // 0
-        vec![0, 2],    // 1
-        vec![1, 4],    // 2
-        vec![0, 4, 6], // 3
-        vec![2, 3],    // 4
-        vec![0],       // 5 external
-        vec![3],       // 6 external
-    ]);
-
-    let blossom = Blossom::new(0, vec![2, 1, 0, 3, 4]);
-    let shrunk = shrink_graph(&graph, &blossom);
-
-    let mut matching = MatchingState::new(7);
-    matching.match_edge(1, 2);
-    matching.match_edge(3, 4);
-
-    let path = vec![
-        shrunk.original_to_shrunk[5],
-        shrunk.blossom_node,
-        shrunk.original_to_shrunk[6],
-    ];
-
-    let expanded = try_expand_path_through_blossom(&path, &graph, &shrunk, &blossom, &matching)
-        .expect("path should expand");
-
-    assert_eq!(expanded, vec![5, 0, 3, 6]);
-}
-
-#[test]
-fn edmonds_expands_augmenting_path_through_blossom() {
-    let graph = test_graph(vec![
-        vec![1, 3, 5], // 0 base
-        vec![0, 2],    // 1
-        vec![1, 4],    // 2
-        vec![0, 4, 7], // 3
-        vec![2, 3],    // 4
-        vec![0, 6],    // 5
-        vec![5],       // 6 exposed root
-        vec![3],       // 7 exposed target
-    ]);
-
-    let mut matching = MatchingState::new(8);
-    matching.match_edge(1, 2);
-    matching.match_edge(3, 4);
-    matching.match_edge(0, 5);
-
-    let path = try_find_augmenting_path_edmonds(&graph, &matching, 6)
-        .expect("search should succeed")
-        .expect("augmenting path should exist");
-
-    assert_eq!(path, vec![6, 5, 0, 3, 7]);
-}
-
-#[test]
-fn computes_maximum_matching_without_blossom() {
-    let graph = test_graph(vec![vec![1], vec![0, 2], vec![1, 3], vec![2]]);
-
-    let matching = try_compute_maximum_matching(&graph).expect("matching should compute");
-
-    assert_eq!(matching.mate[0], Some(1));
-    assert_eq!(matching.mate[1], Some(0));
-    assert_eq!(matching.mate[2], Some(3));
-    assert_eq!(matching.mate[3], Some(2));
-}
-
-#[test]
-fn computes_maximum_matching_with_blossom() {
-    let graph = test_graph(vec![
-        vec![1, 2],    // 0
-        vec![0, 2],    // 1
-        vec![0, 1, 3], // 2
-        vec![2],       // 3
-    ]);
-
-    let matching = try_compute_maximum_matching(&graph).expect("matching should compute");
-
-    let matched_edges = matching
-        .mate
+/// Describes a random instance in a human-readable format, including its seed, number of vertices, and their coordinates.
+///
+/// # Arguments
+/// * `inst` - The `RandomInstance` to describe, containing the coordinates and instance information.
+/// * `seed` - The seed used to generate the random instance, included in the description for reproducibility.
+///
+/// # Returns
+/// * `String` - A formatted string describing the random instance, including its seed, number of vertices, and their coordinates.
+fn describe(inst: &RandomInstance, seed: u64) -> String {
+    let coords = inst
+        .coords
         .iter()
         .enumerate()
-        .filter(|(u, mate)| mate.is_some_and(|v| *u < v))
-        .count();
+        .map(|(i, (x, y))| format!("    {}: ({x}, {y})", i + 1))
+        .collect::<Vec<_>>()
+        .join("\n");
+    format!("seed={seed}, n={},\ncoords:\n{coords}", inst.coords.len())
+}
 
-    assert_eq!(matched_edges, 2);
+/// Runs Blossom V if the feature is enabled; otherwise returns None.
+///
+/// # Arguments
+/// * `inst` - The `RandomInstance` to solve with Blossom V, containing the coordinates and instance information.
+///
+/// # Returns
+/// * `Option<Result<i64, String>>` - An optional result containing the cost of the matching found by Blossom V,
+///   or an error message if Blossom V is not enabled or if it encounters an error during execution.
+#[cfg(feature = "blossom-v")]
+fn blossom_v_cost(inst: &RandomInstance) -> Option<Result<i64, String>> {
+    use tsplib_solver::BlossomVMatching;
+
+    use crate::BlossomVMatching;
+    let ctx = describe(inst, 0);
+    let res = BlossomVMatching::new()
+        .try_compute(&inst.vertices, &inst.instance)
+        .map_err(|e| format!("Blossom V errored: {e}"))
+        .and_then(|edges| {
+            assert_perfect(&edges, &inst.vertices, "Blossom V", &ctx);
+            Ok(matching_cost(&edges, &inst.instance))
+        });
+    Some(res)
+}
+
+#[cfg(not(feature = "blossom-v"))]
+fn blossom_v_cost(_inst: &RandomInstance) -> Option<Result<i64, String>> {
+    None
+}
+
+fn compare_once(seed: u64, n: usize, coord_max: i64) -> Result<(), String> {
+    let mut rng = Rng::new(seed);
+    let inst = random_instance(&mut rng, n, coord_max);
+    let ctx = describe(&inst, seed);
+
+    let edmonds = WeightedEdmondsMatching::new()
+        .try_compute(&inst.vertices, &inst.instance)
+        .map_err(|e| format!("WeightedEdmonds errored: {e}\n{ctx}"))?;
+    assert_perfect(&edmonds, &inst.vertices, "WeightedEdmonds", &ctx);
+    let edmonds_cost = matching_cost(&edmonds, &inst.instance);
+
+    // Primary oracle: exact brute force
+    let exact = RecursiveMatching::new()
+        .try_compute(&inst.vertices, &inst.instance)
+        .map_err(|e| format!("RecursiveMatching errored: {e}\n{ctx}"))?;
+    let exact_cost = matching_cost(&exact, &inst.instance);
+
+    if edmonds_cost != exact_cost {
+        return Err(format!(
+            "cost mismatch vs exact: WeightedEdmonds={edmonds_cost}, exact={exact_cost}\n\
+            Edmonds matching: {edmonds:?}\n{ctx}",
+        ));
+    }
+
+    // Secondary cross-check against Blossom V if available
+    if let Some(bv) = blossom_v_cost(&inst) {
+        let bv_cost = bv.map_err(|e| format!("{e}\n{ctx}"))?;
+        if bv_cost != exact_cost {
+            return Err(format!(
+                "Blossom V disagrees with exact: BlossomV={bv_cost}, exact={exact_cost}\n{ctx}"
+            ));
+        }
+    }
+
+    Ok(())
+}
+
+fn sweep(label: &str, n: usize, coord_max: i64, seeds: u64) {
+    for seed in 1..=seeds {
+        if let Err(msg) = compare_once(seed, n, coord_max) {
+            panic!("[{label}] mismatch on seed {seed}:\n{msg}");
+        }
+    }
 }
 
 #[test]
-fn validates_matching_state() {
-    let mut matching = MatchingState::new(4);
-
-    matching.match_edge(0, 1);
-    matching.match_edge(2, 3);
-
-    assert!(matching.is_valid());
+fn oracle_n2() {
+    sweep("n2", 2, 100, 200);
 }
 
 #[test]
-fn matching_cardinality() {
-    let mut matching = MatchingState::new(6);
-
-    matching.match_edge(0, 1);
-    matching.match_edge(2, 3);
-    matching.match_edge(4, 5);
-
-    assert_eq!(matching.cardinality(), 3);
+fn oracle_n4() {
+    // K4: the canonical "duals must be half-integral" case (Cook p. 155).
+    sweep("n4", 4, 100, 3000);
 }
 
 #[test]
-fn computes_maximum_matching_on_cycle() {
-    let graph = test_graph(vec![vec![1, 2], vec![0, 3], vec![0, 3], vec![1, 2]]);
-
-    let matching = try_compute_maximum_matching(&graph).expect("matching should compute");
-
-    assert!(matching.is_valid());
-    assert_eq!(matching.cardinality(), 2);
+fn oracle_n6() {
+    // First size where blossoms appear.
+    sweep("n6", 6, 100, 3000);
 }
 
 #[test]
-fn computes_maximum_matching_on_odd_cycle() {
-    let graph = test_graph(vec![
-        vec![1, 4],
-        vec![0, 2],
-        vec![1, 3],
-        vec![2, 4],
-        vec![3, 0],
-    ]);
-
-    let matching = try_compute_maximum_matching(&graph).expect("matching should compute");
-
-    assert!(matching.is_valid());
-    assert_eq!(matching.cardinality(), 2);
+fn oracle_n8() {
+    sweep("n8", 8, 100, 1500);
 }
 
 #[test]
-fn shrink_graph_preserves_minimum_external_edge_weight() {
-    let nodes = (0..6)
-        .map(|id| Node {
-            id,
-            x: 0.0,
-            y: 0.0,
+fn oracle_n10() {
+    sweep("n10", 10, 120, 800);
+}
+
+#[test]
+fn oracle_n12() {
+    sweep("n12", 12, 150, 400);
+}
+
+#[test]
+fn oracle_n14() {
+    sweep("n14", 14, 180, 200);
+}
+
+#[test]
+fn oracle_n16() {
+    // RecursiveMatching caps at 18 vertices; stay safely below.
+    sweep("n16", 16, 200, 80);
+}
+
+/// Tight coordinate range forces many equal distances, where degenerate dual
+/// updates (delta = 0) and nested blossoms tend to surface.
+#[test]
+fn oracle_n8_tight() {
+    sweep("n8_tight", 8, 5, 3000);
+}
+
+#[test]
+fn oracle_n12_tight() {
+    sweep("n12_tight", 12, 6, 1000);
+}
+
+#[test]
+#[allow(clippy::approx_constant)]
+fn oracle_burma14_odd_set() {
+    // Coordinates of MST-odd vertices {2,3,4,5,8,10} of burma14.
+    let coords = [
+        (16.47, 94.44), // 2
+        (20.09, 92.54), // 3
+        (22.39, 93.37), // 4
+        (25.23, 97.24), // 5
+        (17.20, 96.29), // 8
+        (14.05, 98.12), // 10
+    ];
+    let n = coords.len();
+
+    // GEO distance, matching tsplib-core::distances.
+    fn latlon(x: f64, y: f64) -> (f64, f64) {
+        let pi = 3.141592;
+        let dx = x.trunc();
+        let lat = pi * (dx + 5.0 * (x - dx) / 3.0) / 180.0;
+        let dy = y.trunc();
+        let lon = pi * (dy + 5.0 * (y - dy) / 3.0) / 180.0;
+        (lat, lon)
+    }
+    fn geo(a: (f64, f64), b: (f64, f64)) -> i32 {
+        let (lat1, lon1) = latlon(a.0, a.1);
+        let (lat2, lon2) = latlon(b.0, b.1);
+        let rrr = 6378.388;
+        let q1 = (lon1 - lon2).cos();
+        let q2 = (lat1 - lat2).cos();
+        let q3 = (lat1 + lat2).cos();
+        let arg = (0.5 * ((1.0 + q1) * q2 - (1.0 - q1) * q3)).clamp(-1.0, 1.0);
+        (rrr * arg.acos() + 1.0) as i32
+    }
+
+    let mut adjacency_matrix = vec![vec![0i32; n]; n];
+    for i in 0..n {
+        for j in (i + 1)..n {
+            let d = geo(coords[i], coords[j]);
+            adjacency_matrix[i][j] = d;
+            adjacency_matrix[j][i] = d;
+        }
+    }
+    let nodes: Vec<Node> = (0..n)
+        .map(|i| Node {
+            id: i + 1,
+            x: coords[i].0,
+            y: coords[i].1,
             z: None,
         })
-        .collect::<Vec<_>>();
+        .collect();
+    let instance = TsplibInstance {
+        problem_id: "burma14_odd".to_string(),
+        name: "burma14_odd".to_string(),
+        problem_type: ProblemType::TSP,
+        nodes,
+        adjacency_matrix,
+        fixed_edges: None,
+    };
+    let vertices: Vec<usize> = (1..=n).collect();
 
-    let edges = vec![
-        // blossom cycle
-        Edge {
-            u: 0,
-            v: 1,
-            weight: 1,
-        },
-        Edge {
-            u: 1,
-            v: 2,
-            weight: 1,
-        },
-        Edge {
-            u: 2,
-            v: 4,
-            weight: 1,
-        },
-        Edge {
-            u: 4,
-            v: 3,
-            weight: 1,
-        },
-        Edge {
-            u: 3,
-            v: 0,
-            weight: 1,
-        },
-        // external edges to node 5
-        Edge {
-            u: 0,
-            v: 5,
-            weight: 30,
-        },
-        Edge {
-            u: 1,
-            v: 5,
-            weight: 10,
-        },
-        Edge {
-            u: 2,
-            v: 5,
-            weight: 20,
-        },
-    ];
+    let edmonds = WeightedEdmondsMatching::new()
+        .try_compute(&vertices, &instance)
+        .expect("WeightedEdmonds must produce a perfect matching on burma14 odd set");
+    assert_perfect(&edmonds, &vertices, "WeightedEdmonds", "burma14_odd_set");
 
-    let graph = EdmondsGraph::from_graph(&Graph { nodes, edges });
-
-    let blossom = Blossom::new(0, vec![2, 1, 0, 3, 4]);
-    let shrunk = shrink_graph(&graph, &blossom);
-
-    let external_5 = shrunk.original_to_shrunk[5];
+    let exact = RecursiveMatching::new()
+        .try_compute(&vertices, &instance)
+        .expect("RecursiveMatching must solve burma14 odd set");
 
     assert_eq!(
-        shrunk.graph.weight(shrunk.blossom_node, external_5),
-        Some(10)
+        matching_cost(&edmonds, &instance),
+        matching_cost(&exact, &instance),
+        "WeightedEdmonds cost must equal the exact optimum on burma14 odd set",
     );
-}
-
-#[test]
-fn dual_state_can_store_values() {
-    let mut duals = DualState::new(4);
-
-    duals.try_set(2, 17).unwrap();
-
-    assert_eq!(duals.get(2), Some(17));
-}
-
-#[test]
-fn dual_state_can_increment_values() {
-    let mut duals = DualState::new(4);
-
-    duals.try_set(2, 17).unwrap();
-    duals.try_add(2, 5).unwrap();
-
-    assert_eq!(duals.get(2), Some(22));
-}
-
-#[test]
-fn slack_is_weight_minus_duals() {
-    let graph = EdmondsGraph::from_graph(&Graph {
-        nodes: vec![
-            Node {
-                id: 0,
-                x: 0.0,
-                y: 0.0,
-                z: None,
-            },
-            Node {
-                id: 1,
-                x: 0.0,
-                y: 0.0,
-                z: None,
-            },
-        ],
-        edges: vec![Edge {
-            u: 0,
-            v: 1,
-            weight: 10,
-        }],
-    });
-
-    let mut duals = DualState::new(2);
-
-    duals.try_set(0, 6).unwrap();
-    duals.try_set(1, 4).unwrap();
-
-    assert_eq!(duals.try_slack(&graph, 0, 1).unwrap(), 10);
-}
-
-#[test]
-fn tight_edge_has_zero_slack() {
-    let graph = EdmondsGraph::from_graph(&Graph {
-        nodes: vec![
-            Node {
-                id: 0,
-                x: 0.0,
-                y: 0.0,
-                z: None,
-            },
-            Node {
-                id: 1,
-                x: 0.0,
-                y: 0.0,
-                z: None,
-            },
-        ],
-        edges: vec![Edge {
-            u: 0,
-            v: 1,
-            weight: 10,
-        }],
-    });
-
-    let mut duals = DualState::new(2);
-
-    duals.try_set(0, 8).unwrap();
-    duals.try_set(1, 12).unwrap();
-
-    assert_eq!(duals.try_slack(&graph, 0, 1).unwrap(), 0);
-}
-
-#[test]
-fn detects_tight_edge() {
-    let graph = EdmondsGraph::from_graph(&Graph {
-        nodes: vec![
-            Node {
-                id: 0,
-                x: 0.0,
-                y: 0.0,
-                z: None,
-            },
-            Node {
-                id: 1,
-                x: 0.0,
-                y: 0.0,
-                z: None,
-            },
-        ],
-        edges: vec![Edge {
-            u: 0,
-            v: 1,
-            weight: 10,
-        }],
-    });
-
-    let mut duals = DualState::new(2);
-
-    duals.try_set(0, 8).unwrap();
-    duals.try_set(1, 12).unwrap();
-
-    assert!(graph.try_is_tight(&duals, 0, 1).unwrap());
-}
-
-#[test]
-fn detects_non_tight_edge() {
-    let graph = EdmondsGraph::from_graph(&Graph {
-        nodes: vec![
-            Node {
-                id: 0,
-                x: 0.0,
-                y: 0.0,
-                z: None,
-            },
-            Node {
-                id: 1,
-                x: 0.0,
-                y: 0.0,
-                z: None,
-            },
-        ],
-        edges: vec![Edge {
-            u: 0,
-            v: 1,
-            weight: 10,
-        }],
-    });
-
-    let mut duals = DualState::new(2);
-
-    duals.try_set(0, 6).unwrap();
-    duals.try_set(1, 4).unwrap();
-
-    assert!(!graph.try_is_tight(&duals, 0, 1).unwrap());
-}
-
-#[test]
-fn returns_only_tight_neighbors() {
-    let graph = EdmondsGraph::from_graph(&Graph {
-        nodes: vec![
-            Node {
-                id: 0,
-                x: 0.0,
-                y: 0.0,
-                z: None,
-            },
-            Node {
-                id: 1,
-                x: 0.0,
-                y: 0.0,
-                z: None,
-            },
-            Node {
-                id: 2,
-                x: 0.0,
-                y: 0.0,
-                z: None,
-            },
-        ],
-        edges: vec![
-            Edge {
-                u: 0,
-                v: 1,
-                weight: 10,
-            },
-            Edge {
-                u: 0,
-                v: 2,
-                weight: 7,
-            },
-        ],
-    });
-
-    let mut duals = DualState::new(3);
-
-    duals.try_set(0, 8).unwrap();
-    duals.try_set(1, 12).unwrap();
-    duals.try_set(2, 1).unwrap();
-
-    let tight_neighbors = graph
-        .try_tight_neighbors(&duals, 0)
-        .expect("tight neighbors should compute");
-
-    assert_eq!(tight_neighbors, vec![1]);
-}
-
-#[test]
-fn tight_search_ignores_non_tight_edges() {
-    let graph = EdmondsGraph::from_graph(&Graph {
-        nodes: vec![
-            Node {
-                id: 0,
-                x: 0.0,
-                y: 0.0,
-                z: None,
-            },
-            Node {
-                id: 1,
-                x: 0.0,
-                y: 0.0,
-                z: None,
-            },
-            Node {
-                id: 2,
-                x: 0.0,
-                y: 0.0,
-                z: None,
-            },
-        ],
-        edges: vec![
-            Edge {
-                u: 0,
-                v: 1,
-                weight: 10,
-            },
-            Edge {
-                u: 0,
-                v: 2,
-                weight: 7,
-            },
-        ],
-    });
-
-    let mut duals = DualState::new(3);
-    duals.try_set(0, 8).unwrap();
-    duals.try_set(1, 12).unwrap();
-    duals.try_set(2, 1).unwrap();
-
-    let matching = MatchingState::new(3);
-
-    let search =
-        search_tight_alternating_tree(&graph, &duals, &matching, 0).expect("search should succeed");
-
-    assert_eq!(search.result, SearchResult::AugmentingPath(vec![0, 1]));
-}
-
-#[test]
-fn initializes_duals_from_minimum_incident_edge_weight() {
-    let graph = EdmondsGraph::from_graph(&Graph {
-        nodes: vec![
-            Node {
-                id: 0,
-                x: 0.0,
-                y: 0.0,
-                z: None,
-            },
-            Node {
-                id: 1,
-                x: 0.0,
-                y: 0.0,
-                z: None,
-            },
-            Node {
-                id: 2,
-                x: 0.0,
-                y: 0.0,
-                z: None,
-            },
-        ],
-        edges: vec![
-            Edge {
-                u: 0,
-                v: 1,
-                weight: 10,
-            },
-            Edge {
-                u: 0,
-                v: 2,
-                weight: 6,
-            },
-        ],
-    });
-
-    let duals = try_initialize_duals(&graph).expect("dual initialization should succeed");
-
-    assert_eq!(duals.try_get(0).unwrap(), 6);
-    assert_eq!(duals.try_get(1).unwrap(), 10);
-    assert_eq!(duals.try_get(2).unwrap(), 6);
-}
-
-#[test]
-fn initialized_duals_produce_non_negative_slack() {
-    let graph = EdmondsGraph::from_graph(&Graph {
-        nodes: vec![
-            Node {
-                id: 0,
-                x: 0.0,
-                y: 0.0,
-                z: None,
-            },
-            Node {
-                id: 1,
-                x: 0.0,
-                y: 0.0,
-                z: None,
-            },
-            Node {
-                id: 2,
-                x: 0.0,
-                y: 0.0,
-                z: None,
-            },
-        ],
-        edges: vec![
-            Edge {
-                u: 0,
-                v: 1,
-                weight: 10,
-            },
-            Edge {
-                u: 0,
-                v: 2,
-                weight: 6,
-            },
-            Edge {
-                u: 1,
-                v: 2,
-                weight: 8,
-            },
-        ],
-    });
-
-    let duals = try_initialize_duals(&graph).expect("dual initialization should succeed");
-
-    for u in 0..graph.adjacency.len() {
-        for v in graph.neighbors(u) {
-            let slack = duals.try_slack(&graph, u, v).expect("slack should compute");
-
-            assert!(slack >= 0, "negative slack on edge ({u}, {v}): {slack}");
-        }
-    }
-}
-
-#[test]
-fn alternating_tree_returns_even_vertices() {
-    let tree = AlternatingTree {
-        label: vec![Label::Even, Label::Odd, Label::Even, Label::Unlabeled],
-        parent: vec![None; 4],
-    };
-
-    assert_eq!(tree.even_vertices(), vec![0, 2]);
-}
-
-#[test]
-fn alternating_tree_returns_odd_vertices() {
-    let tree = AlternatingTree {
-        label: vec![Label::Even, Label::Odd, Label::Even, Label::Odd],
-        parent: vec![None; 4],
-    };
-
-    assert_eq!(tree.odd_vertices(), vec![1, 3]);
-}
-
-#[test]
-fn finds_minimum_outgoing_slack() {
-    let graph = EdmondsGraph::from_graph(&Graph {
-        nodes: vec![
-            Node {
-                id: 0,
-                x: 0.0,
-                y: 0.0,
-                z: None,
-            },
-            Node {
-                id: 1,
-                x: 0.0,
-                y: 0.0,
-                z: None,
-            },
-            Node {
-                id: 2,
-                x: 0.0,
-                y: 0.0,
-                z: None,
-            },
-        ],
-        edges: vec![
-            Edge {
-                u: 0,
-                v: 1,
-                weight: 10,
-            },
-            Edge {
-                u: 0,
-                v: 2,
-                weight: 7,
-            },
-        ],
-    });
-
-    let mut duals = DualState::new(3);
-
-    duals.try_set(0, 8).unwrap();
-    duals.try_set(1, 10).unwrap();
-    duals.try_set(2, 1).unwrap();
-
-    let tree = AlternatingTree {
-        label: vec![Label::Even, Label::Unlabeled, Label::Unlabeled],
-        parent: vec![None; 3],
-    };
-
-    let delta = try_minimum_outgoing_slack(&tree, &graph, &duals).expect("delta should compute");
-
-    // slack(0,1)=20-8-10 = 2
-    // slack(0,2)=14-8-1 = 5
-
-    assert_eq!(delta, 2);
-}
-
-#[test]
-fn updates_duals_using_tree_labels() {
-    let mut duals = DualState::new(4);
-
-    duals.try_set(0, 10).unwrap();
-    duals.try_set(1, 20).unwrap();
-    duals.try_set(2, 30).unwrap();
-    duals.try_set(3, 40).unwrap();
-
-    let tree = AlternatingTree {
-        label: vec![Label::Even, Label::Odd, Label::Unlabeled, Label::Even],
-        parent: vec![None; 4],
-    };
-
-    try_update_duals(&tree, &mut duals, 5).expect("dual update should succeed");
-
-    assert_eq!(duals.try_get(0).unwrap(), 15);
-    assert_eq!(duals.try_get(1).unwrap(), 15);
-    assert_eq!(duals.try_get(2).unwrap(), 30);
-    assert_eq!(duals.try_get(3).unwrap(), 45);
-}
-
-#[test]
-fn dual_update_creates_new_tight_edge() {
-    let graph = EdmondsGraph::from_graph(&Graph {
-        nodes: vec![
-            Node {
-                id: 0,
-                x: 0.0,
-                y: 0.0,
-                z: None,
-            },
-            Node {
-                id: 1,
-                x: 0.0,
-                y: 0.0,
-                z: None,
-            },
-        ],
-        edges: vec![Edge {
-            u: 0,
-            v: 1,
-            weight: 10,
-        }],
-    });
-
-    let mut duals = DualState::new(2);
-
-    duals.try_set(0, 8).unwrap();
-    duals.try_set(1, 10).unwrap();
-
-    let tree = AlternatingTree {
-        label: vec![Label::Even, Label::Unlabeled],
-        parent: vec![None; 2],
-    };
-
-    try_update_duals(&tree, &mut duals, 2).expect("dual update should succeed");
-
-    assert!(graph.try_is_tight(&duals, 0, 1).unwrap());
-}
-
-#[test]
-fn dual_update_makes_neighbor_tight() {
-    let graph = EdmondsGraph::from_graph(&Graph {
-        nodes: vec![
-            Node {
-                id: 0,
-                x: 0.0,
-                y: 0.0,
-                z: None,
-            },
-            Node {
-                id: 1,
-                x: 0.0,
-                y: 0.0,
-                z: None,
-            },
-        ],
-        edges: vec![Edge {
-            u: 0,
-            v: 1,
-            weight: 10,
-        }],
-    });
-
-    let mut duals = DualState::new(2);
-
-    duals.try_set(0, 8).unwrap();
-    duals.try_set(1, 10).unwrap();
-
-    assert_eq!(
-        graph
-            .try_tight_neighbors(&duals, 0)
-            .expect("tight neighbors should compute"),
-        Vec::<usize>::new()
-    );
-
-    let tree = AlternatingTree {
-        label: vec![Label::Even, Label::Unlabeled],
-        parent: vec![None; 2],
-    };
-
-    let delta = try_minimum_outgoing_slack(&tree, &graph, &duals).expect("delta should compute");
-
-    assert_eq!(delta, 2);
-
-    try_update_duals(&tree, &mut duals, delta).expect("dual update should succeed");
-
-    assert_eq!(
-        graph
-            .try_tight_neighbors(&duals, 0)
-            .expect("tight neighbors should compute"),
-        vec![1]
-    );
-}
-
-#[test]
-fn weighted_search_updates_duals_until_path_becomes_tight() {
-    let graph = EdmondsGraph::from_graph(&Graph {
-        nodes: vec![
-            Node {
-                id: 0,
-                x: 0.0,
-                y: 0.0,
-                z: None,
-            },
-            Node {
-                id: 1,
-                x: 0.0,
-                y: 0.0,
-                z: None,
-            },
-        ],
-        edges: vec![Edge {
-            u: 0,
-            v: 1,
-            weight: 10,
-        }],
-    });
-
-    let mut duals = DualState::new(2);
-    duals.try_set(0, 8).unwrap();
-    duals.try_set(1, 10).unwrap();
-
-    let matching = MatchingState::new(2);
-
-    let path = try_find_weighted_augmenting_path(&graph, &mut duals, &matching, 0)
-        .expect("weighted search should succeed")
-        .expect("augmenting path should exist");
-
-    assert_eq!(path, vec![0, 1]);
-    assert!(graph.try_is_tight(&duals, 0, 1).unwrap());
-}
-
-#[test]
-fn weighted_search_detects_blossom_on_tight_edges() {
-    let graph = EdmondsGraph::from_graph(&Graph {
-        nodes: vec![
-            Node {
-                id: 0,
-                x: 0.0,
-                y: 0.0,
-                z: None,
-            },
-            Node {
-                id: 1,
-                x: 0.0,
-                y: 0.0,
-                z: None,
-            },
-            Node {
-                id: 2,
-                x: 0.0,
-                y: 0.0,
-                z: None,
-            },
-            Node {
-                id: 3,
-                x: 0.0,
-                y: 0.0,
-                z: None,
-            },
-            Node {
-                id: 4,
-                x: 0.0,
-                y: 0.0,
-                z: None,
-            },
-        ],
-        edges: vec![
-            Edge {
-                u: 0,
-                v: 1,
-                weight: 10,
-            },
-            Edge {
-                u: 1,
-                v: 2,
-                weight: 10,
-            },
-            Edge {
-                u: 2,
-                v: 4,
-                weight: 10,
-            },
-            Edge {
-                u: 4,
-                v: 3,
-                weight: 10,
-            },
-            Edge {
-                u: 3,
-                v: 0,
-                weight: 10,
-            },
-        ],
-    });
-
-    let mut duals = DualState::new(5);
-    for node in 0..5 {
-        duals.try_set(node, 10).unwrap();
-    }
-
-    let mut matching = MatchingState::new(5);
-    matching.match_edge(1, 2);
-    matching.match_edge(3, 4);
-
-    let search =
-        search_tight_alternating_tree(&graph, &duals, &matching, 0).expect("search should succeed");
-
-    match search.result {
-        SearchResult::Blossom { cycle, base, edge } => {
-            assert_eq!(cycle.len(), 5);
-            assert_eq!(base, 0);
-            assert!(matches!(edge, (2, 4) | (4, 2)));
-        }
-        _ => panic!("expected blossom"),
-    }
-}
-
-#[test]
-fn weighted_search_expands_path_through_tight_blossom() {
-    let graph = EdmondsGraph::from_graph(&Graph {
-        nodes: vec![
-            Node {
-                id: 0,
-                x: 0.0,
-                y: 0.0,
-                z: None,
-            },
-            Node {
-                id: 1,
-                x: 0.0,
-                y: 0.0,
-                z: None,
-            },
-            Node {
-                id: 2,
-                x: 0.0,
-                y: 0.0,
-                z: None,
-            },
-            Node {
-                id: 3,
-                x: 0.0,
-                y: 0.0,
-                z: None,
-            },
-            Node {
-                id: 4,
-                x: 0.0,
-                y: 0.0,
-                z: None,
-            },
-            Node {
-                id: 5,
-                x: 0.0,
-                y: 0.0,
-                z: None,
-            },
-            Node {
-                id: 6,
-                x: 0.0,
-                y: 0.0,
-                z: None,
-            },
-            Node {
-                id: 7,
-                x: 0.0,
-                y: 0.0,
-                z: None,
-            },
-        ],
-        edges: vec![
-            Edge {
-                u: 0,
-                v: 1,
-                weight: 10,
-            },
-            Edge {
-                u: 1,
-                v: 2,
-                weight: 10,
-            },
-            Edge {
-                u: 2,
-                v: 4,
-                weight: 10,
-            },
-            Edge {
-                u: 4,
-                v: 3,
-                weight: 10,
-            },
-            Edge {
-                u: 3,
-                v: 0,
-                weight: 10,
-            },
-            Edge {
-                u: 0,
-                v: 5,
-                weight: 10,
-            },
-            Edge {
-                u: 5,
-                v: 6,
-                weight: 10,
-            },
-            Edge {
-                u: 3,
-                v: 7,
-                weight: 10,
-            },
-        ],
-    });
-
-    let mut duals = DualState::new(8);
-    for node in 0..8 {
-        duals.try_set(node, 10).unwrap();
-    }
-
-    let mut matching = MatchingState::new(8);
-    matching.match_edge(1, 2);
-    matching.match_edge(3, 4);
-    matching.match_edge(0, 5);
-
-    let path = try_find_weighted_augmenting_path(&graph, &mut duals, &matching, 6)
-        .expect("weighted search should succeed")
-        .expect("augmenting path should exist");
-
-    assert_eq!(path, vec![6, 5, 0, 3, 7]);
-}
-
-#[test]
-fn computes_weighted_matching_on_simple_graph() {
-    let graph = EdmondsGraph::from_graph(&Graph {
-        nodes: vec![
-            Node {
-                id: 0,
-                x: 0.0,
-                y: 0.0,
-                z: None,
-            },
-            Node {
-                id: 1,
-                x: 0.0,
-                y: 0.0,
-                z: None,
-            },
-            Node {
-                id: 2,
-                x: 0.0,
-                y: 0.0,
-                z: None,
-            },
-            Node {
-                id: 3,
-                x: 0.0,
-                y: 0.0,
-                z: None,
-            },
-        ],
-        edges: vec![
-            Edge {
-                u: 0,
-                v: 1,
-                weight: 1,
-            },
-            Edge {
-                u: 2,
-                v: 3,
-                weight: 1,
-            },
-            Edge {
-                u: 0,
-                v: 2,
-                weight: 10,
-            },
-            Edge {
-                u: 1,
-                v: 3,
-                weight: 10,
-            },
-        ],
-    });
-
-    let matching = try_compute_weighted_matching(&graph).expect("weighted matching should compute");
-
-    assert!(matching.is_valid());
-    assert_eq!(matching.cardinality(), 2);
-
-    assert_eq!(matching.mate[0], Some(1));
-    assert_eq!(matching.mate[1], Some(0));
-    assert_eq!(matching.mate[2], Some(3));
-    assert_eq!(matching.mate[3], Some(2));
-}
-
-#[test]
-fn computes_lower_weight_perfect_matching() {
-    let graph = EdmondsGraph::from_graph(&Graph {
-        nodes: vec![
-            Node {
-                id: 0,
-                x: 0.0,
-                y: 0.0,
-                z: None,
-            },
-            Node {
-                id: 1,
-                x: 0.0,
-                y: 0.0,
-                z: None,
-            },
-            Node {
-                id: 2,
-                x: 0.0,
-                y: 0.0,
-                z: None,
-            },
-            Node {
-                id: 3,
-                x: 0.0,
-                y: 0.0,
-                z: None,
-            },
-        ],
-        edges: vec![
-            Edge {
-                u: 0,
-                v: 1,
-                weight: 100,
-            },
-            Edge {
-                u: 2,
-                v: 3,
-                weight: 100,
-            },
-            Edge {
-                u: 0,
-                v: 2,
-                weight: 1,
-            },
-            Edge {
-                u: 1,
-                v: 3,
-                weight: 1,
-            },
-        ],
-    });
-
-    let matching = try_compute_weighted_matching(&graph).expect("weighted matching should compute");
-
-    assert!(matching.is_valid());
-    assert_eq!(matching.cardinality(), 2);
-
-    assert_eq!(matching.mate[0], Some(2));
-    assert_eq!(matching.mate[2], Some(0));
-    assert_eq!(matching.mate[1], Some(3));
-    assert_eq!(matching.mate[3], Some(1));
-}
-
-#[test]
-fn computes_weighted_matching_through_blossom() {
-    let graph = EdmondsGraph::from_graph(&Graph {
-        nodes: vec![
-            Node {
-                id: 0,
-                x: 0.0,
-                y: 0.0,
-                z: None,
-            },
-            Node {
-                id: 1,
-                x: 0.0,
-                y: 0.0,
-                z: None,
-            },
-            Node {
-                id: 2,
-                x: 0.0,
-                y: 0.0,
-                z: None,
-            },
-            Node {
-                id: 3,
-                x: 0.0,
-                y: 0.0,
-                z: None,
-            },
-            Node {
-                id: 4,
-                x: 0.0,
-                y: 0.0,
-                z: None,
-            },
-            Node {
-                id: 5,
-                x: 0.0,
-                y: 0.0,
-                z: None,
-            },
-        ],
-        edges: vec![
-            Edge {
-                u: 0,
-                v: 1,
-                weight: 10,
-            },
-            Edge {
-                u: 1,
-                v: 2,
-                weight: 10,
-            },
-            Edge {
-                u: 2,
-                v: 3,
-                weight: 10,
-            },
-            Edge {
-                u: 3,
-                v: 4,
-                weight: 10,
-            },
-            Edge {
-                u: 4,
-                v: 0,
-                weight: 10,
-            },
-            Edge {
-                u: 0,
-                v: 5,
-                weight: 1,
-            },
-            Edge {
-                u: 2,
-                v: 5,
-                weight: 50,
-            },
-            Edge {
-                u: 3,
-                v: 5,
-                weight: 50,
-            },
-        ],
-    });
-
-    let matching = try_compute_weighted_matching(&graph).expect("weighted matching should compute");
-
-    assert!(matching.is_valid());
-    assert_eq!(matching.cardinality(), 3);
-
-    assert_eq!(matching.mate[0], Some(5));
-    assert_eq!(matching.mate[5], Some(0));
-
-    let total_weight = matching
-        .mate
-        .iter()
-        .enumerate()
-        .filter_map(|(u, &mate)| {
-            let v = mate?;
-            (u < v).then(|| graph.weight(u, v).unwrap())
-        })
-        .sum::<i32>();
-
-    assert_eq!(total_weight, 21);
-}
-
-#[test]
-fn computes_known_minimum_weight_matching_on_k4() {
-    let graph = EdmondsGraph::from_graph(&Graph {
-        nodes: vec![
-            Node {
-                id: 0,
-                x: 0.0,
-                y: 0.0,
-                z: None,
-            },
-            Node {
-                id: 1,
-                x: 0.0,
-                y: 0.0,
-                z: None,
-            },
-            Node {
-                id: 2,
-                x: 0.0,
-                y: 0.0,
-                z: None,
-            },
-            Node {
-                id: 3,
-                x: 0.0,
-                y: 0.0,
-                z: None,
-            },
-        ],
-        edges: vec![
-            Edge {
-                u: 0,
-                v: 1,
-                weight: 10,
-            },
-            Edge {
-                u: 2,
-                v: 3,
-                weight: 10,
-            },
-            Edge {
-                u: 0,
-                v: 2,
-                weight: 1,
-            },
-            Edge {
-                u: 1,
-                v: 3,
-                weight: 1,
-            },
-            Edge {
-                u: 0,
-                v: 3,
-                weight: 5,
-            },
-            Edge {
-                u: 1,
-                v: 2,
-                weight: 5,
-            },
-        ],
-    });
-
-    let matching = try_compute_weighted_matching(&graph).expect("weighted matching should compute");
-
-    assert!(matching.is_valid());
-    assert_eq!(matching.cardinality(), 2);
-    assert_eq!(matching_weight(&graph, &matching), 2);
-}
-
-#[test]
-fn weighted_matching_matches_brute_force_on_six_nodes() {
-    let graph = EdmondsGraph::from_graph(&Graph {
-        nodes: (0..6)
-            .map(|id| Node {
-                id,
-                x: 0.0,
-                y: 0.0,
-                z: None,
-            })
-            .collect(),
-        edges: vec![
-            Edge {
-                u: 0,
-                v: 1,
-                weight: 9,
-            },
-            Edge {
-                u: 0,
-                v: 2,
-                weight: 2,
-            },
-            Edge {
-                u: 0,
-                v: 3,
-                weight: 7,
-            },
-            Edge {
-                u: 0,
-                v: 4,
-                weight: 6,
-            },
-            Edge {
-                u: 0,
-                v: 5,
-                weight: 8,
-            },
-            Edge {
-                u: 1,
-                v: 2,
-                weight: 6,
-            },
-            Edge {
-                u: 1,
-                v: 3,
-                weight: 4,
-            },
-            Edge {
-                u: 1,
-                v: 4,
-                weight: 3,
-            },
-            Edge {
-                u: 1,
-                v: 5,
-                weight: 7,
-            },
-            Edge {
-                u: 2,
-                v: 3,
-                weight: 5,
-            },
-            Edge {
-                u: 2,
-                v: 4,
-                weight: 8,
-            },
-            Edge {
-                u: 2,
-                v: 5,
-                weight: 1,
-            },
-            Edge {
-                u: 3,
-                v: 4,
-                weight: 9,
-            },
-            Edge {
-                u: 3,
-                v: 5,
-                weight: 6,
-            },
-            Edge {
-                u: 4,
-                v: 5,
-                weight: 2,
-            },
-        ],
-    });
-
-    let matching = try_compute_weighted_matching(&graph).expect("weighted matching should compute");
-
-    let algorithm_weight = matching_weight(&graph, &matching);
-
-    let vertices = (0..6).collect::<Vec<_>>();
-    let brute_force_weight = brute_force_minimum_matching_weight(&graph, &vertices)
-        .expect("brute force should find a perfect matching");
-
-    assert!(matching.is_valid());
-    assert_eq!(matching.cardinality(), 3);
-    assert_eq!(algorithm_weight, brute_force_weight);
-}
-
-#[test]
-fn weighted_matching_matches_bruteforce_on_blossom_graph() {
-    let graph = EdmondsGraph::from_graph(&Graph {
-        nodes: (0..6)
-            .map(|id| Node {
-                id,
-                x: 0.0,
-                y: 0.0,
-                z: None,
-            })
-            .collect(),
-        edges: vec![
-            Edge {
-                u: 0,
-                v: 1,
-                weight: 8,
-            },
-            Edge {
-                u: 1,
-                v: 2,
-                weight: 8,
-            },
-            Edge {
-                u: 2,
-                v: 3,
-                weight: 8,
-            },
-            Edge {
-                u: 3,
-                v: 4,
-                weight: 8,
-            },
-            Edge {
-                u: 4,
-                v: 0,
-                weight: 8,
-            },
-            Edge {
-                u: 0,
-                v: 5,
-                weight: 1,
-            },
-            Edge {
-                u: 1,
-                v: 5,
-                weight: 20,
-            },
-            Edge {
-                u: 2,
-                v: 5,
-                weight: 30,
-            },
-            Edge {
-                u: 3,
-                v: 5,
-                weight: 20,
-            },
-            Edge {
-                u: 4,
-                v: 5,
-                weight: 30,
-            },
-        ],
-    });
-
-    let matching = try_compute_weighted_matching(&graph).expect("weighted matching should compute");
-
-    let algorithm_weight = matching_weight(&graph, &matching);
-
-    let vertices = (0..6).collect::<Vec<_>>();
-    let brute_force_weight = brute_force_minimum_matching_weight(&graph, &vertices)
-        .expect("brute force should find a perfect matching");
-
-    assert!(matching.is_valid());
-    assert_eq!(matching.cardinality(), 3);
-    assert_eq!(algorithm_weight, brute_force_weight);
-}
-
-#[test]
-fn weighted_matching_matches_bruteforce_on_dense_graph_b() {
-    let graph = EdmondsGraph::from_graph(&Graph {
-        nodes: (0..6)
-            .map(|id| Node {
-                id,
-                x: 0.0,
-                y: 0.0,
-                z: None,
-            })
-            .collect(),
-        edges: vec![
-            Edge {
-                u: 0,
-                v: 1,
-                weight: 4,
-            },
-            Edge {
-                u: 0,
-                v: 2,
-                weight: 9,
-            },
-            Edge {
-                u: 0,
-                v: 3,
-                weight: 3,
-            },
-            Edge {
-                u: 0,
-                v: 4,
-                weight: 8,
-            },
-            Edge {
-                u: 0,
-                v: 5,
-                weight: 7,
-            },
-            Edge {
-                u: 1,
-                v: 2,
-                weight: 2,
-            },
-            Edge {
-                u: 1,
-                v: 3,
-                weight: 6,
-            },
-            Edge {
-                u: 1,
-                v: 4,
-                weight: 5,
-            },
-            Edge {
-                u: 1,
-                v: 5,
-                weight: 9,
-            },
-            Edge {
-                u: 2,
-                v: 3,
-                weight: 7,
-            },
-            Edge {
-                u: 2,
-                v: 4,
-                weight: 4,
-            },
-            Edge {
-                u: 2,
-                v: 5,
-                weight: 6,
-            },
-            Edge {
-                u: 3,
-                v: 4,
-                weight: 1,
-            },
-            Edge {
-                u: 3,
-                v: 5,
-                weight: 8,
-            },
-            Edge {
-                u: 4,
-                v: 5,
-                weight: 3,
-            },
-        ],
-    });
-
-    let matching = try_compute_weighted_matching(&graph).expect("weighted matching should compute");
-
-    let vertices = (0..6).collect::<Vec<_>>();
-    let brute_force_weight = brute_force_minimum_matching_weight(&graph, &vertices)
-        .expect("brute force should find a perfect matching");
-
-    assert!(matching.is_valid());
-    assert_eq!(matching.cardinality(), 3);
-    assert_eq!(matching_weight(&graph, &matching), brute_force_weight);
-}
-
-#[test]
-fn weighted_matching_matches_bruteforce_on_sparse_graph() {
-    let graph = EdmondsGraph::from_graph(&Graph {
-        nodes: (0..6)
-            .map(|id| Node {
-                id,
-                x: 0.0,
-                y: 0.0,
-                z: None,
-            })
-            .collect(),
-        edges: vec![
-            Edge {
-                u: 0,
-                v: 1,
-                weight: 5,
-            },
-            Edge {
-                u: 0,
-                v: 2,
-                weight: 2,
-            },
-            Edge {
-                u: 1,
-                v: 3,
-                weight: 4,
-            },
-            Edge {
-                u: 2,
-                v: 5,
-                weight: 3,
-            },
-            Edge {
-                u: 3,
-                v: 4,
-                weight: 1,
-            },
-            Edge {
-                u: 4,
-                v: 5,
-                weight: 6,
-            },
-            Edge {
-                u: 1,
-                v: 2,
-                weight: 7,
-            },
-        ],
-    });
-
-    let matching = try_compute_weighted_matching(&graph).expect("weighted matching should compute");
-
-    let vertices = (0..6).collect::<Vec<_>>();
-    let brute_force_weight = brute_force_minimum_matching_weight(&graph, &vertices)
-        .expect("brute force should find a perfect matching");
-
-    assert!(matching.is_valid());
-    assert_eq!(matching.cardinality(), 3);
-    assert_eq!(matching_weight(&graph, &matching), brute_force_weight);
-}
-
-#[test]
-fn weighted_matching_matches_bruteforce_on_second_blossom_graph() {
-    let graph = EdmondsGraph::from_graph(&Graph {
-        nodes: (0..6)
-            .map(|id| Node {
-                id,
-                x: 0.0,
-                y: 0.0,
-                z: None,
-            })
-            .collect(),
-        edges: vec![
-            Edge {
-                u: 0,
-                v: 1,
-                weight: 6,
-            },
-            Edge {
-                u: 1,
-                v: 2,
-                weight: 6,
-            },
-            Edge {
-                u: 2,
-                v: 3,
-                weight: 6,
-            },
-            Edge {
-                u: 3,
-                v: 4,
-                weight: 6,
-            },
-            Edge {
-                u: 4,
-                v: 0,
-                weight: 6,
-            },
-            Edge {
-                u: 0,
-                v: 5,
-                weight: 2,
-            },
-            Edge {
-                u: 1,
-                v: 5,
-                weight: 9,
-            },
-            Edge {
-                u: 2,
-                v: 5,
-                weight: 8,
-            },
-            Edge {
-                u: 3,
-                v: 5,
-                weight: 3,
-            },
-            Edge {
-                u: 4,
-                v: 5,
-                weight: 10,
-            },
-        ],
-    });
-
-    let matching = try_compute_weighted_matching(&graph).expect("weighted matching should compute");
-
-    let vertices = (0..6).collect::<Vec<_>>();
-    let brute_force_weight = brute_force_minimum_matching_weight(&graph, &vertices)
-        .expect("brute force should find a perfect matching");
-
-    assert!(matching.is_valid());
-    assert_eq!(matching.cardinality(), 3);
-    assert_eq!(matching_weight(&graph, &matching), brute_force_weight);
-}
-
-#[test]
-fn converts_matching_state_to_edges() {
-    let graph = EdmondsGraph::from_graph(&Graph {
-        nodes: (0..4)
-            .map(|id| Node {
-                id,
-                x: 0.0,
-                y: 0.0,
-                z: None,
-            })
-            .collect(),
-        edges: vec![
-            Edge {
-                u: 0,
-                v: 1,
-                weight: 5,
-            },
-            Edge {
-                u: 2,
-                v: 3,
-                weight: 7,
-            },
-        ],
-    });
-
-    let mut matching = MatchingState::new(4);
-    matching.match_edge(0, 1);
-    matching.match_edge(2, 3);
-
-    let edges = matching_to_edges(&graph, &matching).expect("matching should convert");
-
-    assert_eq!(edges.len(), 2);
-    assert!(edges.contains(&Edge {
-        u: 0,
-        v: 1,
-        weight: 5
-    }));
-    assert!(edges.contains(&Edge {
-        u: 2,
-        v: 3,
-        weight: 7
-    }));
 }

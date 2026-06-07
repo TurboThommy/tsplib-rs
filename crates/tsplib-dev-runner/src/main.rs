@@ -9,7 +9,10 @@ use tsplib_core::{
     reader::{read_tsp_file, read_tsp_files},
 };
 use tsplib_parser::{parse, try_parse};
-use tsplib_solver::{BlossomVMatching, PerfectMatchingAlgorithm, RecursiveMatching, TspSolver};
+use tsplib_solver::{
+    BlossomVMatching, PerfectMatchingAlgorithm, RecursiveMatching, TspSolver,
+    WeightedEdmondsMatching,
+};
 
 /// The main function serves as the entry point of the program, calling the test functions for parsing TSP files.
 fn main() {
@@ -36,7 +39,8 @@ fn main() {
         // ("test_kruskal", test_kruskal),
         // ("test_prim", test_prim),
         // ("test_boruvka", test_boruvka),
-        ("test_recursive_matcher", test_recursive_matcher),
+        // ("test_recursive_matcher", test_recursive_matcher),
+        ("test_edmonds_matcher", test_edmonds_matcher),
     ];
 
     for (name, test) in tests {
@@ -315,6 +319,53 @@ fn test_recursive_matcher() {
 
     tracing::info!(
         recursive_cost,
+        blossomv_cost,
+        odd_vertices = odd_vertices.len(),
+        "Compared recursive matching with Blossom V"
+    );
+}
+
+#[allow(dead_code)]
+fn test_edmonds_matcher() {
+    let (problem_id, data) = read_tsp_file("./data/pr76.tsp");
+
+    let tsp_instance = try_parse(problem_id, data).expect("failed to read instance");
+    let problem: TsplibInstance = tsp_instance.try_into().expect("failed to convert instance");
+
+    let mst = problem
+        .try_get_mst_kruskal()
+        .expect("failed to compute MST using Kruskal's algorithm");
+
+    let odd_vertices = mst
+        .get_degrees()
+        .iter()
+        .filter(|(_, degree)| !degree.is_multiple_of(2))
+        .map(|(&node_id, _)| node_id)
+        .collect::<Vec<_>>();
+
+    let edmonds_solution = WeightedEdmondsMatching::new()
+        .try_compute(&odd_vertices, &problem)
+        .expect("failed to compute perfect matching using Edmond's algorithm");
+    let edmonds_cost = edmonds_solution
+        .iter()
+        .map(|e| i64::from(e.weight))
+        .sum::<i64>();
+
+    let blossomv_solution = BlossomVMatching::new()
+        .try_compute(&odd_vertices, &problem)
+        .expect("failed to compute perfect matching using blossom v algorithm");
+    let blossomv_cost = blossomv_solution
+        .iter()
+        .map(|e| i64::from(e.weight))
+        .sum::<i64>();
+
+    assert_eq!(
+        edmonds_cost, blossomv_cost,
+        "Edmonds and Blossom V matchings should have the same cost"
+    );
+
+    tracing::info!(
+        edmonds_cost,
         blossomv_cost,
         odd_vertices = odd_vertices.len(),
         "Compared recursive matching with Blossom V"
