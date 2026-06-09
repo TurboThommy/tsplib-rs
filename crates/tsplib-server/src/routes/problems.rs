@@ -1,6 +1,7 @@
 //! Handlers for the REST API routes related to problem instances.
 use crate::{
     errors::ServerError,
+    models::responses::ProblemDescriptionResponse,
     state::{AppState, ProcessingState},
 };
 
@@ -9,10 +10,13 @@ use axum::{
     extract::{Path, State},
     routing::get,
 };
-use std::fs;
 use tokio_util::sync::CancellationToken;
-use tsplib_core::{context::ExecutionContext, models::ProblemInstance, reader::try_read_tsp_file};
-use tsplib_parser::try_parse;
+use tsplib_core::{
+    context::ExecutionContext,
+    models::TsplibInstance,
+    reader::{try_read_tsp_file, try_read_tsp_files},
+};
+use tsplib_parser::{SpecificationPart, try_parse, try_parse_header_line};
 
 /// Router for problem-related endpoints.
 pub fn router() -> Router<AppState> {
@@ -26,20 +30,42 @@ pub fn router() -> Router<AppState> {
 /// # Returns
 /// * `Json<Vec<String>>` - A list of problem IDs (filenames without extension) in JSON format
 ///   or an error if the directory cannot be read.
-async fn get_problems() -> Result<Json<Vec<String>>, ServerError> {
-    let problems = fs::read_dir("./data")?
-        .filter_map(|entry| {
-            let entry = entry.ok()?;
-            let path = entry.path();
-            if !path.is_file() {
-                return None;
+async fn get_problems() -> Result<Json<Vec<ProblemDescriptionResponse>>, ServerError> {
+    tracing::info!("Received request to get list of problems");
+
+    // read all tsp files from the "./data" directory
+    // filter relevant metadata
+    tracing::debug!("Reading TSP files from ./data directory");
+    let problems = try_read_tsp_files("./data")?
+        .iter()
+        .map(|(problem_id, problem_data)| {
+            // create a new specification part to hold the parsed metadata
+            let mut specification = SpecificationPart::new();
+
+            // extract lines containing metadata (lines with a colon)
+            let metadata_lines = problem_data
+                .lines()
+                .filter(|line| line.contains(':'))
+                .collect::<Vec<_>>();
+
+            // parse metadata lines and populate the specification
+            for line in metadata_lines {
+                let parts = line.split(':').map(|s| s.trim()).collect::<Vec<_>>();
+                if parts.len() != 2 {
+                    Err(ServerError::MetadataParseError(problem_id.to_string()))?;
+                }
+                try_parse_header_line(parts[0], parts[1], &mut specification)?;
             }
-            if path.extension()? != "tsp" {
-                return None;
-            }
-            Some(path.file_stem()?.to_string_lossy().to_string())
+
+            // convert the specification to a problem description response
+            ProblemDescriptionResponse::try_from_specification(problem_id.clone(), &specification)
         })
-        .collect::<Vec<_>>();
+        .collect::<Result<Vec<_>, ServerError>>()?;
+
+    tracing::info!(
+        problem_count = problems.len(),
+        "Successfully read problems from ./data directory"
+    );
 
     Ok(Json(problems))
 }
@@ -55,7 +81,9 @@ async fn get_problems() -> Result<Json<Vec<String>>, ServerError> {
 async fn get_problem(
     State(state): State<AppState>,
     Path(problem_id): Path<String>,
-) -> Result<Json<ProblemInstance>, ServerError> {
+) -> Result<Json<TsplibInstance>, ServerError> {
+    tracing::info!(problem_id = %problem_id, state = ?state, "Received request to get problem instance");
+
     // check if any processing task is currently running
     let mut solver_state = state.solver_state.lock().await;
 
@@ -67,6 +95,8 @@ async fn get_problem(
     let token = CancellationToken::new();
     let task_token = token.clone();
 
+    tracing::debug!("Starting processing task");
+
     let handle = tokio::task::spawn_blocking(move || {
         let cancellation = || task_token.is_cancelled();
         let ctx = ExecutionContext::new(&cancellation);
@@ -75,23 +105,34 @@ async fn get_problem(
         let problem_path = format!("./data/{}.tsp", problem_id);
 
         // try to read and parse the problem
+        tracing::debug!(problem_path = %problem_path, "Attempting to read and parse problem instance");
         let (problem_id, problem_data) = try_read_tsp_file(problem_path.as_ref())?;
+
         let problem = try_parse(problem_id, problem_data)?.try_into_problem_instance(ctx)?;
+        tracing::debug!(problem_id = %problem.problem_id, "Successfully parsed problem instance");
 
         Ok(problem)
     });
 
+    tracing::debug!("Processing task started, updating app state");
     *solver_state = ProcessingState::Processing(token);
     drop(solver_state);
+    tracing::debug!(state = ?state, "App state updated");
 
     // wait for the processing task to complete and get the result
+    tracing::debug!("Waiting for processing task to complete");
     let result = handle.await;
 
     // reset solver state to idle after completion
+    tracing::debug!("Processing task completed, resetting solver state to idle");
     *state.solver_state.lock().await = ProcessingState::Idle;
+    tracing::debug!(state = ?state, "App state updated, returning result");
 
     match result {
-        Ok(Ok(problem)) => Ok(Json(problem)),
+        Ok(Ok(problem)) => {
+            tracing::info!(problem_count = %problem.problem_id, "Successfully processed problem instance");
+            Ok(Json(problem))
+        }
         Ok(Err(e)) => Err(e),
         Err(e) if e.is_cancelled() => Err(ServerError::ProcessingCancelled),
         Err(e) => Err(ServerError::from(e)),

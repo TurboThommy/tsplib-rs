@@ -1,0 +1,8 @@
+[package]
+name = "blossom-v"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+blossom-v-sys = { path = "../blossom-v-sys" }
+thiserror = "2.0.18"

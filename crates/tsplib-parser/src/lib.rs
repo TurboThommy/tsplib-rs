@@ -5,4 +5,4 @@
 mod parser;
 
 pub use parser::errors::ParseError;
-pub use parser::{parse, try_parse};
+pub use parser::{SpecificationPart, parse, try_parse, try_parse_header_line};

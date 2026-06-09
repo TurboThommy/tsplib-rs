@@ -8,28 +8,28 @@ mod specification;
 
 use errors::ParseError;
 use sections::try_to_data_section;
-use specification::try_parse_header_line;
+pub use specification::try_parse_header_line;
 use tsplib_core::{
     enums::{
         DataSection, DataSectionType, DisplayDataType, EdgeDataFormat, EdgeWeightFormat,
         EdgeWeightType, NodeCoordType, ProblemType,
     },
-    models::TSPLIBInstance,
+    models::TsplibDefinition,
 };
 
 /// Internal struct to hold the parsed specification/header fields while parsing the file
-struct SpecificationPart {
+pub struct SpecificationPart {
     /// The name of the TSP instance, as specified in the "NAME" field of the file header.
-    name: Option<String>,
+    pub name: Option<String>,
 
     /// The type of the TSP problem, as specified in the "TYPE" field of the file header.
     problem_type: Option<ProblemType>,
 
     /// The dimension of the TSP instance, as specified in the "DIMENSION" field of the file header.
-    dimension: Option<usize>,
+    pub dimension: Option<usize>,
 
     /// The type of edge weight representation used in the TSP instance, as specified in the "EDGE_WEIGHT_TYPE" field of the file header.
-    edge_weight_type: Option<EdgeWeightType>,
+    pub edge_weight_type: Option<EdgeWeightType>,
 
     /// The comment lines from the file header, as specified in the "COMMENT" fields of the file header.
     /// This is a vector of strings, as there can be multiple comment lines in the file.
@@ -53,7 +53,7 @@ struct SpecificationPart {
 
 impl SpecificationPart {
     /// Helper function to create a new SpecificationPart with all fields initialized to None or empty values.
-    fn new() -> Self {
+    pub fn new() -> Self {
         Self {
             name: None,
             problem_type: None,
@@ -66,6 +66,12 @@ impl SpecificationPart {
             node_coord_type: None,
             display_data_type: None,
         }
+    }
+}
+
+impl Default for SpecificationPart {
+    fn default() -> Self {
+        Self::new()
     }
 }
 
@@ -114,7 +120,7 @@ impl ParserState {
 ///
 /// # Panics
 /// * If the file content cannot be parsed successfully.
-pub fn parse(problem_id: String, file_content: String) -> TSPLIBInstance {
+pub fn parse(problem_id: String, file_content: String) -> TsplibDefinition {
     try_parse(problem_id, file_content).expect("Failed to parse TSP file content")
 }
 
@@ -132,7 +138,9 @@ pub fn parse(problem_id: String, file_content: String) -> TSPLIBInstance {
 ///
 /// # Errors
 /// * `Err(ParseError)` - An error indicating the specific issue encountered during parsing, such as invalid line formats, unknown header fields, missing required fields, or unknown section types.
-pub fn try_parse(problem_id: String, file_content: String) -> Result<TSPLIBInstance, ParseError> {
+pub fn try_parse(problem_id: String, file_content: String) -> Result<TsplibDefinition, ParseError> {
+    tracing::debug!(%problem_id, "Starting to parse TSP file content");
+
     let mut specification = SpecificationPart::new();
     let mut data_sections: Vec<DataSection> = Vec::new();
     let mut state = ParserState::Header;
@@ -154,8 +162,10 @@ pub fn try_parse(problem_id: String, file_content: String) -> Result<TSPLIBInsta
                         Err(ParseError::InvalidLineFormat(line.to_string()))?;
                     }
 
+                    tracing::trace!(%line, "Parsing header line as key-value pair");
                     try_parse_header_line(parts[0], parts[1], &mut specification)?;
                 } else if line.contains("SECTION") {
+                    tracing::trace!(%line, "Transitioning to new section state based on section header line");
                     state.try_new_section_from_line(line)?;
                 } else if !line.trim().is_empty() {
                     Err(ParseError::EmptyLineInHeader)?;
@@ -166,6 +176,7 @@ pub fn try_parse(problem_id: String, file_content: String) -> Result<TSPLIBInsta
             ParserState::Section(ref section_type) => {
                 // end of section or file reached, save the parsed data section
                 if line == "EOF" || line == "-1" {
+                    tracing::trace!(%line, "End of section or file reached, saving parsed data section");
                     if !curr_lines.is_empty() {
                         data_sections.push(try_to_data_section(section_type, curr_lines)?);
                     }
@@ -176,6 +187,7 @@ pub fn try_parse(problem_id: String, file_content: String) -> Result<TSPLIBInsta
 
                 // new section encountered, save the parsed data section and transition to the new section state
                 if line.contains("SECTION") {
+                    tracing::trace!(%line, "Transitioning to new section state based on section header line");
                     if !curr_lines.is_empty() {
                         data_sections.push(try_to_data_section(section_type, curr_lines)?);
                     }
@@ -195,11 +207,24 @@ pub fn try_parse(problem_id: String, file_content: String) -> Result<TSPLIBInsta
     if let ParserState::Section(section_type) = state
         && !curr_lines.is_empty()
     {
+        tracing::trace!(
+            "End of file reached with remaining lines in current data section, saving parsed data section"
+        );
         data_sections.push(try_to_data_section(&section_type, curr_lines)?)
     }
 
     // After parsing all lines, create the TSPInstance from the parsed specification and data sections
-    try_create_tsp_instance(problem_id, specification, data_sections)
+    let definition = try_create_tsp_instance(problem_id.clone(), specification, data_sections)?;
+
+    tracing::debug!(
+        %problem_id,
+        problem_name = definition.name,
+        dimension = definition.dimension,
+        section_count = definition.data_sections.len(),
+        "TSP file parsing completed successfully"
+    );
+
+    Ok(definition)
 }
 
 // -----------------------------------------------------------------------------------------------------------------------------------------------
@@ -223,8 +248,8 @@ fn try_create_tsp_instance(
     problem_id: String,
     specification: SpecificationPart,
     data_sections: Vec<DataSection>,
-) -> Result<TSPLIBInstance, ParseError> {
-    let tsp_instance = tsplib_core::models::TSPLIBInstance {
+) -> Result<TsplibDefinition, ParseError> {
+    let tsp_instance = tsplib_core::models::TsplibDefinition {
         // required fields, returns an error if any of these are missing from the specification
         problem_id: problem_id.to_string(),
         name: specification

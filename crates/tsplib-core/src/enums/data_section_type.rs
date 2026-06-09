@@ -2,6 +2,7 @@
 use std::fmt;
 
 /// DataSectionType specifies the type of data section in the problem instance file.
+#[derive(Debug)]
 pub enum DataSectionType {
     /// NODE_COORD_SECTION
     NodeCoordSection,

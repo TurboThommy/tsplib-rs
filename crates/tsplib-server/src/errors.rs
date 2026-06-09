@@ -6,6 +6,8 @@ use tsplib_core::enums::{ConversionError, IoError};
 use tsplib_parser::ParseError;
 use tsplib_solver::errors::SolverError;
 
+/// This module defines the `ServerError` enum, which represents the various errors that can occur during the operation of the TSPLIB server.
+/// Each variant of the enum corresponds to a specific type
 #[derive(Error, Debug)]
 pub enum ServerError {
     #[error("I/O error: {0}")]
@@ -18,18 +20,56 @@ pub enum ServerError {
     ProblemParseError(String),
     #[error("Processing task was cancelled")]
     ProcessingCancelled,
+    #[error("Failed to parse problem metadata for: {0}")]
+    MetadataParseError(String),
+    #[error("Unsupported edge weight type for problem: {0}")]
+    UnsupportedEdgeWeightType(String),
+    #[error("No known solution cost found for problem instance: {0}")]
+    SolutionProblemIdNotFound(String),
 }
 
 impl IntoResponse for ServerError {
     fn into_response(self) -> axum::response::Response {
         let (status, error_message) = match self {
-            ServerError::IoError(msg) => (StatusCode::INTERNAL_SERVER_ERROR, msg),
-            ServerError::SolverError(msg) => (StatusCode::INTERNAL_SERVER_ERROR, msg),
-            ServerError::ProcessingAlreadyRunning => (StatusCode::CONFLICT, self.to_string()),
+            ServerError::ProcessingCancelled => {
+                tracing::error!(error = %self, "Processing task was cancelled");
+                (StatusCode::OK, self.to_string())
+            }
+
+            ServerError::ProcessingAlreadyRunning => {
+                tracing::error!(error = %self, "A processing task is already running");
+                (StatusCode::CONFLICT, self.to_string())
+            }
+
+            ServerError::SolverError(ref msg) => {
+                tracing::error!(error = %self, "Solver error occurred");
+                (StatusCode::INTERNAL_SERVER_ERROR, msg.clone())
+            }
+
+            ServerError::IoError(ref msg) => {
+                tracing::error!(error = %self, "I/O error occurred");
+                (StatusCode::INTERNAL_SERVER_ERROR, msg.clone())
+            }
+
             ServerError::ProblemParseError(_) => {
+                tracing::error!(error = %self, "Failed to parse problem instance");
                 (StatusCode::INTERNAL_SERVER_ERROR, self.to_string())
             }
-            ServerError::ProcessingCancelled => (StatusCode::OK, self.to_string()),
+
+            ServerError::MetadataParseError(_) => {
+                tracing::error!(error = %self, "Failed to parse problem metadata");
+                (StatusCode::INTERNAL_SERVER_ERROR, self.to_string())
+            }
+
+            ServerError::UnsupportedEdgeWeightType(_) => {
+                tracing::error!(error = %self, "Unsupported edge weight type for problem");
+                (StatusCode::INTERNAL_SERVER_ERROR, self.to_string())
+            }
+
+            ServerError::SolutionProblemIdNotFound(_) => {
+                tracing::error!(error = %self, "No known solution cost found for problem instance");
+                (StatusCode::NOT_FOUND, self.to_string())
+            }
         };
         (status, error_message).into_response()
     }

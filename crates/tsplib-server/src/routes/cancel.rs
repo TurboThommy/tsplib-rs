@@ -1,3 +1,4 @@
+//! This module defines the route and handler for cancelling the currently running processing task in the TSP solver server.
 use axum::{Router, extract::State, http::StatusCode, routing::post};
 
 use crate::state::{AppState, ProcessingState};
@@ -17,12 +18,16 @@ pub fn router() -> Router<AppState> {
 /// # Returns
 /// * `StatusCode` - HTTP status code indicating the result of the cancellation attempt.
 async fn cancel_processing(State(state): State<AppState>) -> StatusCode {
+    tracing::info!(state = ?state, "Received request to cancel processing task");
+
     let solver_state = state.solver_state.lock().await;
 
     if let ProcessingState::Processing(ct) = &*solver_state {
         ct.cancel();
+        tracing::info!(state = ?state, "Processing task cancelled successfully");
         StatusCode::OK
     } else {
+        tracing::info!(state = ?state, "No processing task to cancel");
         StatusCode::BAD_REQUEST
     }
 }

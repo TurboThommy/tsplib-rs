@@ -12,6 +12,7 @@ pub enum InstanceError {
     DistanceInvalidNodeId(usize, usize, usize),
 }
 
+/// IoError represents errors that can occur during file and directory operations.
 #[derive(Error, Debug)]
 pub enum IoError {
     #[error("Invalid file path: {0}")]
@@ -67,4 +68,28 @@ pub enum ConversionError {
 
     #[error("The execution was cancelled before the algorithm could complete.")]
     Cancelled,
+}
+
+/// MstComputationError represents errors that can occur during the computation of a minimum spanning tree (MST).
+#[derive(Error, Debug)]
+pub enum MstComputationError {
+    #[error("Adjacency matrix is empty, cannot compute MST.")]
+    EmptyAdjacencyMatrix,
+
+    #[error("Prim's algorithm failed: {0}")]
+    PrimMstError(String),
+
+    #[error("Borůvka's algorithm failed: {0}")]
+    BoruvkaMstError(String),
+}
+
+/// GraphError represents errors that can occur during graph-related operations, such as finding an Eulerian circuit.
+#[derive(Error, Debug)]
+pub enum GraphError {
+    #[error("Eulerian circuit cannot be found because the graph contains odd degree vertices.")]
+    EulerianCircuitOddDegreeError,
+    #[error("Eulerian circuit cannot be found because the graph is disconnected.")]
+    EulerianCircuitDisconnectedGraphError,
+    #[error("Eulerian circuit cannot be found because the graph is empty.")]
+    EulerianCircuitEmptyGraphError,
 }

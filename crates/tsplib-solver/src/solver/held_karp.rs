@@ -1,13 +1,11 @@
 //! A module containing the implementation of the Held-Karp algorithm for solving the Traveling Salesman Problem (TSP).
 
+use crate::{SolverOptions, TspSolver, errors::SolverError};
 use std::collections::{HashMap, HashSet};
-
 use tsplib_core::{
     context::ExecutionContext,
-    models::{ProblemInstance, TspSolution},
+    models::{TspSolution, TsplibInstance},
 };
-
-use crate::{TspSolver, errors::SolverError};
 
 /// The Held-Karp algorithm is a dynamic programming approach to solve the TSP problem.
 pub struct HeldKarp {
@@ -54,7 +52,7 @@ impl HeldKarp {
     ///   (e.g., distance retrieval error, invalid problem instance, etc.).
     fn try_build_tables(
         &self,
-        problem: &ProblemInstance,
+        problem: &TsplibInstance,
         n: usize,
         start_idx: usize,
         fixed_edge_map: &HashMap<usize, usize>,
@@ -161,7 +159,7 @@ impl HeldKarp {
     ///   (e.g., no solution found, distance retrieval error, etc.).
     fn try_find_minimal_tour(
         &self,
-        problem: &ProblemInstance,
+        problem: &TsplibInstance,
         dp: &DpTable,
         n: usize,
         start_idx: usize,
@@ -202,6 +200,7 @@ impl HeldKarp {
     /// * `start_idx` - The index of the starting node (0-based).
     /// * `full_mask` - The bitmask representing the subset of all nodes visited (i.e., when all nodes are visited).
     /// * `last_node` - The index of the last node in the optimal tour (0-based).
+    /// * `ctx` - An `ExecutionContext` providing additional information and resources for the solver (e.g., time limits, logging, etc.).
     ///
     /// # Returns
     /// * `Result<Vec<usize>, SolverError>` - On success, returns a vector containing the sequence of node IDs in the optimal tour, starting and ending at the specified start node.
@@ -252,6 +251,7 @@ impl TspSolver for HeldKarp {
     /// * `problem` - A reference to the `ProblemInstance` representing the TSP problem to be solved.
     /// * `start_node` - The ID of the node from which the tour should start.
     /// * `ctx` - An `ExecutionContext` providing additional information and resources for the solver (e.g., time limits, logging, etc.).
+    /// * `SolverOptions` - Additional options for the solver (currently not used in this implementation, but can be extended in the future).
     ///
     /// # Returns
     /// * `Result<TspSolution, SolverError>` - On success, returns a `TspSolution` containing the optimal tour and its total cost.
@@ -259,12 +259,20 @@ impl TspSolver for HeldKarp {
     ///   (e.g., invalid start node, dimension exceeded, no solution found, etc.).
     fn try_solve_with_context(
         &self,
-        problem: &ProblemInstance,
+        problem: &TsplibInstance,
         start_node: usize,
         ctx: ExecutionContext,
+        _: SolverOptions,
     ) -> Result<TspSolution, SolverError> {
         // number of nodes in the problem
         let n = problem.nodes.len();
+
+        tracing::info!(
+            node_count = n,
+            start_node,
+            max_dimension = self.max_dimension,
+            "Starting Held-Karp TSP solver"
+        );
 
         // check if dimension is within limits
         if n > self.max_dimension {
@@ -285,8 +293,19 @@ impl TspSolver for HeldKarp {
 
         // check for cancellation before starting the main computation
         if ctx.is_cancelled() {
+            tracing::debug!(
+                node_count = n,
+                start_node,
+                "Held-Karp solver cancelled before starting main computation"
+            );
             return Err(SolverError::Cancelled);
         }
+
+        tracing::debug!(
+            subset_count = 1usize << n,
+            table_cells = (1usize << n) * n,
+            "Building Held-Karp DP and parent tables"
+        );
 
         // build the dp and parent tables
         let (dp, parent) = self.try_build_tables(
@@ -298,13 +317,35 @@ impl TspSolver for HeldKarp {
             ctx,
         )?;
 
+        tracing::debug!(
+            "Held-Karp tables built. Starting to find minimal tour cost and last node of the optimal tour",
+        );
+
         // find the minimal tour cost and the last node in the optimal tour
         let (minimal_cost, last_node) =
             self.try_find_minimal_tour(problem, &dp, n, start_idx, full_mask, ctx)?;
 
+        tracing::debug!(
+            minimal_cost,
+            last_node = last_node + 1,
+            "Minimal tour cost and last node found, starting tour reconstruction"
+        );
+
         // reconstruct the optimal tour based on the last node and the parent table
         let tour =
             self.try_reconstruct_tour(&parent, start_node, start_idx, full_mask, last_node, ctx)?;
+
+        tracing::debug!(
+            last_node = last_node + 1,
+            cost = minimal_cost,
+            "Minimal Held-Karp tour found"
+        );
+
+        tracing::info!(
+            tour_length = tour.len(),
+            cost = minimal_cost,
+            "Held-Karp solver completed"
+        );
 
         Ok(TspSolution {
             tour,

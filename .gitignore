@@ -11,3 +11,6 @@ personal_notes.md
 // Ignore Node.js dependencies for the local frontend adapter.
 /frontend/node_modules
 npm-debug.log*
+
+// Ignore local .vscode settings
+.vscode
