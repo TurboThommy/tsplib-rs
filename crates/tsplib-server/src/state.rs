@@ -1,5 +1,9 @@
 //! Application state management for the TSP solver server.
-use std::{collections::HashMap, fs, sync::Arc};
+use std::{
+    collections::HashMap,
+    fs,
+    sync::{Arc, RwLock},
+};
 use tokio::sync::Mutex;
 use tokio_util::sync::CancellationToken;
 use tsplib_core::{context::ExecutionContext, models::TsplibInstance, reader::read_tsp_files};
@@ -19,7 +23,7 @@ pub enum ProcessingState {
 pub struct AppState {
     pub solver_state: Arc<Mutex<ProcessingState>>,
     pub solutions: Arc<HashMap<String, i64>>,
-    pub instances: Arc<HashMap<String, Arc<TsplibInstance>>>,
+    pub instances: Arc<RwLock<HashMap<String, Arc<TsplibInstance>>>>,
 }
 
 impl AppState {
@@ -41,7 +45,11 @@ impl AppState {
     /// * `Option<Arc<TsplibInstance>>` - Some with the requested problem instance if found,
     ///   or None if the problem ID does not exist in the preloaded instances.
     pub fn get_instance(&self, problem_id: &str) -> Option<Arc<TsplibInstance>> {
-        self.instances.get(problem_id).cloned()
+        self.instances
+            .read()
+            .expect("instances lock is poisoned")
+            .get(problem_id)
+            .cloned()
     }
 
     /// Runs a given processing function in a cancellable manner, ensuring that only one processing task can run at a time.
@@ -133,7 +141,7 @@ fn parse_solutions() -> HashMap<String, i64> {
 /// # Returns
 /// * `HashMap<String, Arc<TsplibInstance>>` - A HashMap where the keys are problem IDs (as Strings) and the values are Arc-wrapped TsplibInstance
 ///   structs representing the parsed TSP problem instances.
-fn parse_instances() -> HashMap<String, Arc<TsplibInstance>> {
+fn parse_instances() -> RwLock<HashMap<String, Arc<TsplibInstance>>> {
     tracing::info!("Parsing TSP instances from ./dat directory");
 
     let instances = read_tsp_files("./data")
@@ -163,5 +171,5 @@ fn parse_instances() -> HashMap<String, Arc<TsplibInstance>> {
         "Successfully parsed TSP instances from ./data directory"
     );
 
-    instances
+    RwLock::new(instances)
 }

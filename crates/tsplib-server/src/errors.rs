@@ -28,6 +28,10 @@ pub enum ServerError {
     SolutionProblemIdNotFound(String),
     #[error("Problem instance not found: {0}")]
     ProblemInstanceNotFound(String),
+    #[error("Invalid problem ID: {0}")]
+    InvalidProblemId(String),
+    #[error("Problem instance with ID {0} already exists")]
+    ProblemInstanceAlreadyExists(String),
 }
 
 impl IntoResponse for ServerError {
@@ -75,6 +79,14 @@ impl IntoResponse for ServerError {
             ServerError::ProblemInstanceNotFound(_) => {
                 tracing::error!(error = %self, "Problem instance not found");
                 (StatusCode::NOT_FOUND, self.to_string())
+            }
+            ServerError::InvalidProblemId(_) => {
+                tracing::error!(error = %self, "Invalid problem ID");
+                (StatusCode::BAD_REQUEST, self.to_string())
+            }
+            ServerError::ProblemInstanceAlreadyExists(_) => {
+                tracing::error!(error = %self, "Problem instance already exists");
+                (StatusCode::CONFLICT, self.to_string())
             }
         };
         (status, error_message).into_response()

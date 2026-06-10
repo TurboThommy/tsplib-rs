@@ -25,3 +25,11 @@ pub struct EdgeBetweenRequest {
     /// The ending node of the edge to query.
     pub to: usize,
 }
+
+/// This struct represents the request to create a new TSP problem instance on the TSPLIB server based on a definition according to the TSPLIB specification.
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct CreateInstanceRequest {
+    pub problem_id: String,
+    pub definition: String,
+}
