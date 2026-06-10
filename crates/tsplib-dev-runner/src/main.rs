@@ -1,10 +1,11 @@
 //! This module contains the main function and test functions for parsing TSP files and converting them to graph representations.
-use std::time::Instant;
+use std::{collections::HashMap, time::Instant};
 
 use itertools::Itertools;
 use tracing_subscriber::{EnvFilter, layer::SubscriberExt, util::SubscriberInitExt};
 use tsplib_core::{
     context::ExecutionContext,
+    enums::DistanceSource,
     models::TsplibInstance,
     reader::{read_tsp_file, read_tsp_files},
 };
@@ -40,7 +41,8 @@ fn main() {
         // ("test_prim", test_prim),
         // ("test_boruvka", test_boruvka),
         // ("test_recursive_matcher", test_recursive_matcher),
-        ("test_edmonds_matcher", test_edmonds_matcher),
+        // ("test_edmonds_matcher", test_edmonds_matcher),
+        ("test_memory_allocation", test_memory_allocation),
     ];
 
     for (name, test) in tests {
@@ -369,5 +371,67 @@ fn test_edmonds_matcher() {
         blossomv_cost,
         odd_vertices = odd_vertices.len(),
         "Compared recursive matching with Blossom V"
+    );
+}
+
+#[allow(dead_code)]
+fn test_memory_allocation() {
+    let definitions = read_tsp_files("./data")
+        .into_iter()
+        .map(|(id, data)| parse(id, data))
+        .collect::<Vec<_>>();
+
+    tracing::info!(instances = definitions.len(), "Parsed instances");
+
+    let instances: HashMap<String, TsplibInstance> = definitions
+        .iter()
+        .flat_map(|def| match def.try_into() {
+            Ok(instance) => Some(instance),
+            Err(_) => {
+                tracing::error!(
+                    instance_id = def.problem_id,
+                    "Failed to convert instance to graph representation. Skipping."
+                );
+                None
+            }
+        })
+        .map(|instance: TsplibInstance| (instance.problem_id.clone(), instance))
+        .collect::<HashMap<_, _>>();
+
+    tracing::info!(
+        instances = instances.len(),
+        "Converted instances to graph representations"
+    );
+
+    let content_size = instances.values().map(|i| i.heap_size()).sum::<usize>();
+    let overhead_size = instances.capacity()
+        * (std::mem::size_of::<String>() + std::mem::size_of::<TsplibInstance>());
+
+    tracing::info!(
+        content_size_bytes = content_size,
+        overhead_size_bytes = overhead_size,
+        total_size_bytes = content_size + overhead_size,
+        "Estimated memory allocation for storing instances in a HashMap"
+    );
+
+    let explicit_instances = instances
+        .values()
+        .filter(|instance| matches!(instance.distance_source, DistanceSource::Explicit(_)))
+        .collect::<Vec<_>>();
+
+    tracing::info!(
+        explicit_instances = explicit_instances.len(),
+        "Instances with explicit distance matrices"
+    );
+
+    let biggest_explicit_instance_size = explicit_instances
+        .iter()
+        .map(|instance| instance.heap_size())
+        .max()
+        .unwrap_or(0);
+
+    tracing::info!(
+        biggest_explicit_instance_size_mb = biggest_explicit_instance_size / (1024 * 1024),
+        "Estimated memory allocation for the largest instance with explicit distance matrix"
     );
 }

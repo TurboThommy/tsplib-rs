@@ -26,6 +26,8 @@ pub enum ServerError {
     UnsupportedEdgeWeightType(String),
     #[error("No known solution cost found for problem instance: {0}")]
     SolutionProblemIdNotFound(String),
+    #[error("Problem instance not found: {0}")]
+    ProblemInstanceNotFound(String),
 }
 
 impl IntoResponse for ServerError {
@@ -68,6 +70,10 @@ impl IntoResponse for ServerError {
 
             ServerError::SolutionProblemIdNotFound(_) => {
                 tracing::error!(error = %self, "No known solution cost found for problem instance");
+                (StatusCode::NOT_FOUND, self.to_string())
+            }
+            ServerError::ProblemInstanceNotFound(_) => {
+                tracing::error!(error = %self, "Problem instance not found");
                 (StatusCode::NOT_FOUND, self.to_string())
             }
         };

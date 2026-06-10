@@ -53,18 +53,31 @@ cargo run -p tsplib-server --features blossom-v --release
 
 ## REST API
 
-| Method | Path                    | Description                                       |
-| ------ | ----------------------- | ------------------------------------------------- |
-| GET    | `/health`               | Health check (returns `200 OK`)                   |
-| GET    | `/problems`             | List available instances with metadata            |
-| GET    | `/problems/{problemId}` | Parse and return a single instance                |
-| GET    | `/solutions`            | Known solution costs for all instances            |
-| GET    | `/solutions/{problemId}`| Known solution cost for a single instance         |
-| GET    | `/solver/algorithms`    | Available TSP solver algorithms                   |
-| POST   | `/solver/start`         | Run a solver on an instance                        |
-| POST   | `/cancel`               | Cancel the running solver/processing task         |
-| GET    | `/mst/algorithms`       | Available minimum-spanning-tree algorithms        |
-| GET    | `/mwpm/algorithms`      | Available minimum-weight perfect-matching algos   |
+| Method | Path                                     | Description                                          |
+| ------ | ---------------------------------------- | ---------------------------------------------------- |
+| GET    | `/health`                                | Health check (returns `200 OK`)                      |
+| GET    | `/problems`                              | List available instances with metadata               |
+| GET    | `/problems/{problemId}`                  | Parse and return a single instance                   |
+| GET    | `/problems/{problemId}/adjacency_matrix` | Adjacency matrix for a specific instance             |
+| GET    | `/problems/{problemId}/no_matrix`        | Specific instance without adjacency matrix           |
+| GET    | `/problems/{problemId}/edges`            | Edge weight between two nodes                        |
+| GET    | `/problems/{problemId}/edges/{nodeId}`   | All edges from a node for a specific instance        |
+| GET    | `/solutions`                             | Known solution costs for all instances               |
+| GET    | `/solutions/{problemId}`                 | Known solution cost for a single instance            |
+| GET    | `/solver/algorithms`                     | Available TSP solver algorithms                      |
+| POST   | `/solver/start`                          | Run a solver on an instance                          |
+| POST   | `/cancel`                                | Cancel the running solver/processing task            |
+| GET    | `/mst/algorithms`                        | Available minimum-spanning-tree algorithms           |
+| GET    | `/mwpm/algorithms`                       | Available minimum-weight perfect-matching algos      |
+
+`GET //problems/{problemId}/edges` expects a JSON body:
+
+```json
+{
+    "from": 1,
+    "to": 3
+}
+```
 
 `POST /solver/start` expects a JSON body:
 
