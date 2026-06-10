@@ -1,9 +1,11 @@
 //! Handlers for the REST API routes related to problem instances.
 
+use std::{fs::OpenOptions, io::Write, sync::Arc};
+
 use crate::{
     errors::ServerError,
     models::{
-        requests::EdgeBetweenRequest,
+        requests::{CreateInstanceRequest, EdgeBetweenRequest},
         responses::{
             EdgeCostResponse, ProblemDescriptionResponse, TsplibInstanceResponse,
             TsplibInstanceWithMatrixResponse,
@@ -15,8 +17,10 @@ use crate::{
 use axum::{
     Json, Router,
     extract::{Path, State},
-    routing::get,
+    routing::{get, post},
 };
+use tsplib_core::models::TsplibInstance;
+use tsplib_parser::try_parse;
 
 /// Router for problem-related endpoints.
 pub fn router() -> Router<AppState> {
@@ -36,6 +40,7 @@ pub fn router() -> Router<AppState> {
             "/problems/{problemId}/edges/{nodeId}",
             get(get_edges_for_node),
         )
+        .route("/problems", post(create_problem))
 }
 
 /// Get the list of available TSP problem instances from the "./data" directory.
@@ -58,6 +63,8 @@ async fn get_problems(
     // use the preloaded instances from the app state to avoid reading and parsing the files again
     let problems = state
         .instances
+        .read()
+        .expect("instances lock is poisoned")
         .values()
         .map(|i| i.try_into())
         .collect::<Result<Vec<_>, _>>()?;
@@ -256,4 +263,82 @@ async fn get_edges_for_node(
         .await?;
 
     Ok(Json(edges))
+}
+
+/// Create a new TSP problem instance on the server based on a definition according to the TSPLIB specification.
+///
+/// # Arguments
+/// * `state` - The shared application state containing the preloaded problem instances and their metadata.
+/// * `request` - The request containing the problem ID and the TSPLIB definition of the problem instance to create.
+///
+/// # Returns
+/// * `Json<TsplibInstanceResponse>` - The created problem instance data in JSON format or an error if the problem instance cannot be created,
+///   if another processing task is currently running, or if the processing task was cancelled.
+async fn create_problem(
+    State(state): State<AppState>,
+    Json(request): Json<CreateInstanceRequest>,
+) -> Result<Json<TsplibInstanceResponse>, ServerError> {
+    tracing::info!(problem_id = %request.problem_id, state = ?state.solver_state, "Received request to create new problem instance");
+
+    // validate problem ID to only contain alphanumeric characters, dashes, and underscores to avoid issues with file paths and URLs
+    if request.problem_id.is_empty()
+        || !request
+            .problem_id
+            .chars()
+            .all(|c| c.is_alphanumeric() || c == '-' || c == '_')
+    {
+        return Err(ServerError::InvalidProblemId(request.problem_id.clone()));
+    }
+
+    let raw_definition = request.definition.clone();
+    let definition = try_parse(request.problem_id, request.definition)?;
+    let instance: TsplibInstance = definition.try_into()?;
+
+    // save the raw definition to a file in the "./data" directory
+    let problem_id = instance.problem_id.clone();
+    let path = format!("./data/{}.tsp", problem_id);
+
+    // use a blocking task to write the file to avoid blocking the async runtime
+    let write_result = tokio::task::spawn_blocking(move || {
+        let mut file = OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&path)?;
+
+        if let Err(e) = file.write_all(raw_definition.as_bytes()) {
+            let _ = std::fs::remove_file(&path);
+            return Err(e);
+        }
+        Ok(())
+    })
+    .await?;
+
+    // handle potential file write errors, such as the file already existing
+    match write_result {
+        Ok(()) => {}
+        Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => {
+            return Err(ServerError::ProblemInstanceAlreadyExists(
+                problem_id.clone(),
+            ));
+        }
+        Err(e) => return Err(ServerError::from(e)),
+    }
+
+    // first create response to prevent move of instance
+    let response = TsplibInstanceResponse {
+        problem_id: instance.problem_id.clone(),
+        name: instance.name.clone(),
+        problem_type: instance.problem_type.clone(),
+        nodes: instance.nodes.clone(),
+        fixed_edges: instance.fixed_edges.clone(),
+    };
+
+    // add the new instance to the app state so that it can be retrieved and solved like the preloaded instances
+    state
+        .instances
+        .write()
+        .expect("instances lock is poisoned")
+        .insert(problem_id, Arc::new(instance));
+
+    Ok(Json(response))
 }
