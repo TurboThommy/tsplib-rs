@@ -216,3 +216,10 @@ pub(crate) struct TsplibInstanceResponse {
     pub nodes: Vec<Node>,
     pub fixed_edges: Option<Vec<(usize, usize)>>,
 }
+
+#[derive(Serialize)]
+pub(crate) struct EdgeCostResponse {
+    pub from: usize,
+    pub to: usize,
+    pub weight: i32,
+}

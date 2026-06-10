@@ -5,7 +5,8 @@ use crate::{
     models::{
         requests::EdgeBetweenRequest,
         responses::{
-            ProblemDescriptionResponse, TsplibInstanceResponse, TsplibInstanceWithMatrixResponse,
+            EdgeCostResponse, ProblemDescriptionResponse, TsplibInstanceResponse,
+            TsplibInstanceWithMatrixResponse,
         },
     },
     state::AppState,
@@ -31,6 +32,10 @@ pub fn router() -> Router<AppState> {
             get(get_problem_without_matrix),
         )
         .route("/problems/{problemId}/edges", get(get_edge))
+        .route(
+            "/problems/{problemId}/edges/{nodeId}",
+            get(get_edges_for_node),
+        )
 }
 
 /// Get the list of available TSP problem instances from the "./data" directory.
@@ -199,4 +204,56 @@ async fn get_edge(
     Ok(Json(distance))
 }
 
-// TODO: add endpoint to get all edges for a specific node
+/// Get the costs of all edges from a specific node to all other nodes in a TSP problem instance.
+///
+/// # Arguments
+/// * `state` - The shared application state containing the preloaded problem instances and their metadata.
+/// * `problem_id` - The ID of the problem instance to query.
+/// * `node_id` - The node for which to retrieve the edge costs to all other nodes.
+///
+/// # Returns
+/// * `Json<Vec<EdgeCostResponse>>` - A list of edge costs from the specified node to all other nodes in JSON format or an error
+///   if the problem instance is not found, if another processing task is currently running, or if the processing task was cancelled.
+async fn get_edges_for_node(
+    State(state): State<AppState>,
+    Path((problem_id, node_id)): Path<(String, usize)>,
+) -> Result<Json<Vec<EdgeCostResponse>>, ServerError> {
+    tracing::info!(
+        problem_id = %problem_id,
+        node_id = %node_id,
+        "Received request to get distances from a specific node to all other nodes"
+    );
+
+    let instance = state
+        .get_instance(&problem_id)
+        .ok_or(ServerError::ProblemInstanceNotFound(problem_id.clone()))?;
+
+    let edges = state
+        .run_cancellable(move |ctx| {
+            tracing::debug!(
+                problem_id = %instance.problem_id,
+                node_id = %node_id,
+                "Attempting to create vector of edges from node"
+            );
+
+            let n = instance.nodes.len();
+
+            (1..=n)
+                .filter(|&to| to != node_id)
+                .map(|to| {
+                    if ctx.is_cancelled() {
+                        return Err(ServerError::ProcessingCancelled);
+                    }
+
+                    Ok(EdgeCostResponse {
+                        from: node_id,
+                        to,
+                        weight: instance.try_get_distance(node_id, to)?,
+                    })
+                })
+                .collect::<Result<Vec<_>, _>>()
+        })
+        .await?;
+
+    Ok(Json(edges))
+}
