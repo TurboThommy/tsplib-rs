@@ -1,6 +1,9 @@
 //! Response models used in the REST API endpoints.
 use serde::Serialize;
-use tsplib_core::enums::EdgeWeightType;
+use tsplib_core::{
+    enums::{EdgeWeightType, ProblemType},
+    models::{Node, TsplibInstance},
+};
 use tsplib_parser::SpecificationPart;
 
 use crate::errors::ServerError;
@@ -98,4 +101,51 @@ impl ProblemDescriptionResponse {
 pub(crate) struct SolutionResponse {
     pub id: String,
     pub cost: i64,
+}
+
+#[derive(Serialize)]
+pub(crate) struct TsplibInstanceWithMatrixResponse {
+    pub problem_id: String,
+    pub name: String,
+    pub problem_type: ProblemType,
+    pub nodes: Vec<Node>,
+    pub adjacency_matrix: Vec<Vec<i32>>,
+    pub fixed_edges: Option<Vec<(usize, usize)>>,
+}
+
+impl TsplibInstanceWithMatrixResponse {
+    /// Try to create a TsplibInstanceResponse from a given TsplibInstance, which contains all the data of a TSP problem instance.
+    ///
+    /// # Arguments
+    /// * `instance` - A TsplibInstance struct containing all the data of a TSP problem instance, including problem ID, name, type, nodes, distance source, and fixed edges.
+    ///
+    /// # Returns
+    /// * `Result<TsplibInstanceResponse, ServerError>` - Ok with a new TsplibInstanceResponse if the instance data is valid and can be converted, or a ServerError if there is an issue with the instance data.
+    #[allow(clippy::needless_range_loop)]
+    pub fn try_from_instance(instance: &TsplibInstance) -> Result<Self, ServerError> {
+        let n = instance.nodes.len();
+
+        let mut adjacency_matrix = vec![vec![0; n]; n];
+
+        for i in 0..n {
+            for j in i + 1..n {
+                if i == j {
+                    continue;
+                }
+
+                let distance = instance.try_get_distance(i + 1, j + 1)?;
+                adjacency_matrix[i][j] = distance;
+                adjacency_matrix[j][i] = distance;
+            }
+        }
+
+        Ok(Self {
+            problem_id: instance.problem_id.clone(),
+            name: instance.name.clone(),
+            problem_type: instance.problem_type.clone(),
+            nodes: instance.nodes.clone(),
+            adjacency_matrix,
+            fixed_edges: instance.fixed_edges.clone(),
+        })
+    }
 }

@@ -1,7 +1,7 @@
 //! Handlers for the REST API routes related to problem instances.
 use crate::{
     errors::ServerError,
-    models::responses::ProblemDescriptionResponse,
+    models::responses::{ProblemDescriptionResponse, TsplibInstanceWithMatrixResponse},
     state::{AppState, ProcessingState},
 };
 
@@ -13,7 +13,6 @@ use axum::{
 use tokio_util::sync::CancellationToken;
 use tsplib_core::{
     context::ExecutionContext,
-    models::TsplibInstance,
     reader::{try_read_tsp_file, try_read_tsp_files},
 };
 use tsplib_parser::{SpecificationPart, try_parse, try_parse_header_line};
@@ -81,7 +80,7 @@ async fn get_problems() -> Result<Json<Vec<ProblemDescriptionResponse>>, ServerE
 async fn get_problem(
     State(state): State<AppState>,
     Path(problem_id): Path<String>,
-) -> Result<Json<TsplibInstance>, ServerError> {
+) -> Result<Json<TsplibInstanceWithMatrixResponse>, ServerError> {
     tracing::info!(problem_id = %problem_id, state = ?state.solver_state, "Received request to get problem instance");
 
     // check if any processing task is currently running
@@ -109,9 +108,20 @@ async fn get_problem(
         let (problem_id, problem_data) = try_read_tsp_file(problem_path.as_ref())?;
 
         let problem = try_parse(problem_id, problem_data)?.try_into_problem_instance(ctx)?;
-        tracing::debug!(problem_id = %problem.problem_id, "Successfully parsed problem instance");
+        tracing::debug!(problem_id = %problem.problem_id, "Successfully parsed problem instance.");
 
-        Ok(problem)
+        if ctx.is_cancelled() {
+            return Err(ServerError::ProcessingCancelled);
+        }
+
+        tracing::debug!(problem_id = %problem.problem_id, "Attempting to create response with full adjacency matrix");
+        let response = TsplibInstanceWithMatrixResponse::try_from_instance(&problem)?;
+
+        if ctx.is_cancelled() {
+            return Err(ServerError::ProcessingCancelled);
+        }
+
+        Ok(response)
     });
 
     tracing::debug!("Processing task started, updating app state");
@@ -129,9 +139,9 @@ async fn get_problem(
     tracing::debug!(state = ?state.solver_state, "App state updated, returning result");
 
     match result {
-        Ok(Ok(problem)) => {
-            tracing::info!(problem_count = %problem.problem_id, "Successfully processed problem instance");
-            Ok(Json(problem))
+        Ok(Ok(response)) => {
+            tracing::info!(problem_count = %response.problem_id, "Successfully processed problem instance");
+            Ok(Json(response))
         }
         Ok(Err(e)) => Err(e),
         Err(e) if e.is_cancelled() => Err(ServerError::ProcessingCancelled),
