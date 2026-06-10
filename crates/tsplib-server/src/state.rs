@@ -2,6 +2,8 @@
 use std::{collections::HashMap, fs, sync::Arc};
 use tokio::sync::Mutex;
 use tokio_util::sync::CancellationToken;
+use tsplib_core::{models::TsplibInstance, reader::read_tsp_files};
+use tsplib_parser::parse;
 
 /// Represents the current state of the TSP solver,which can either be idle or processing a problem instance.
 #[derive(Debug)]
@@ -15,6 +17,7 @@ pub enum ProcessingState {
 pub struct AppState {
     pub solver_state: Arc<Mutex<ProcessingState>>,
     pub solutions: Arc<HashMap<String, i64>>,
+    pub instances: Arc<HashMap<String, Arc<TsplibInstance>>>,
 }
 
 impl AppState {
@@ -23,7 +26,20 @@ impl AppState {
         AppState {
             solver_state: Arc::new(Mutex::new(ProcessingState::Idle)),
             solutions: Arc::new(parse_solutions()),
+            instances: Arc::new(parse_instances()),
         }
+    }
+
+    /// Retrieves a TSP problem instance by its ID from the preloaded instances in the application state.
+    ///
+    /// # Arguments
+    /// * `problem_id` - The ID of the problem instance to retrieve.
+    ///
+    /// # Returns
+    /// * `Option<Arc<TsplibInstance>>` - Some with the requested problem instance if found,
+    ///   or None if the problem ID does not exist in the preloaded instances.
+    pub fn get_instance(&self, problem_id: &str) -> Option<Arc<TsplibInstance>> {
+        self.instances.get(problem_id).cloned()
     }
 }
 
@@ -48,4 +64,37 @@ fn parse_solutions() -> HashMap<String, i64> {
     );
 
     solutions
+}
+
+fn parse_instances() -> HashMap<String, Arc<TsplibInstance>> {
+    tracing::info!("Parsing TSP instances from ./dat directory");
+
+    let instances = read_tsp_files("./data")
+        .into_iter()
+        .map(|(problem_id, problem_data)| parse(problem_id, problem_data))
+        .flat_map(|def| {
+            let problem_id = def.problem_id.clone();
+            let result: Result<TsplibInstance, _> = def.try_into();
+
+            match result {
+                Ok(instance) => Some(instance),
+                Err(e) => {
+                    tracing::error!(
+                        instance_id = problem_id,
+                        error = e.to_string(),
+                        "Failed to convert instance to graph representation. Skipping."
+                    );
+                    None
+                }
+            }
+        })
+        .map(|instance| (instance.problem_id.clone(), Arc::new(instance)))
+        .collect::<HashMap<String, Arc<TsplibInstance>>>();
+
+    tracing::info!(
+        instances = instances.len(),
+        "Successfully parsed TSP instances from ./data directory"
+    );
+
+    instances
 }

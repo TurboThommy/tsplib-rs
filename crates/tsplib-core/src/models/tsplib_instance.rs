@@ -10,7 +10,7 @@ use crate::{
 };
 
 /// Represents a TSP problem instance as graph (collection of nodes and an adjacency matrix).
-#[derive(Serialize)]
+#[derive(Debug, Serialize)]
 pub struct TsplibInstance {
     /// The ID of the problem instance, typically derived from the filename without extension.
     pub problem_id: String,
@@ -23,9 +23,6 @@ pub struct TsplibInstance {
 
     /// The nodes in the problem instance.
     pub nodes: Vec<Node>,
-
-    /// The adjacency matrix representing the distances between nodes.
-    // pub adjacency_matrix: Vec<Vec<i32>>,
 
     /// The distance source for the problem instance, which can be used
     /// to compute distances on demand instead of storing a full adjacency matrix.
