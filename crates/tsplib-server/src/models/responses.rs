@@ -175,7 +175,7 @@ impl TsplibInstanceWithMatrixResponse {
     #[allow(clippy::needless_range_loop)]
     pub fn try_from_instance(
         instance: &TsplibInstance,
-        ctx: ExecutionContext,
+        ctx: &ExecutionContext,
     ) -> Result<Self, ServerError> {
         let n = instance.nodes.len();
 

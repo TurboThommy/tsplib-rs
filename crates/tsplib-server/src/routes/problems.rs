@@ -3,7 +3,7 @@
 use crate::{
     errors::ServerError,
     models::responses::{ProblemDescriptionResponse, TsplibInstanceWithMatrixResponse},
-    state::{AppState, ProcessingState},
+    state::AppState,
 };
 
 use axum::{
@@ -11,8 +11,6 @@ use axum::{
     extract::{Path, State},
     routing::get,
 };
-use tokio_util::sync::CancellationToken;
-use tsplib_core::context::ExecutionContext;
 
 /// Router for problem-related endpoints.
 pub fn router() -> Router<AppState> {
@@ -71,64 +69,18 @@ async fn get_problem(
 ) -> Result<Json<TsplibInstanceWithMatrixResponse>, ServerError> {
     tracing::info!(problem_id = %problem_id, state = ?state.solver_state, "Received request to get problem instance");
 
-    // check if any processing task is currently running
-    let mut solver_state = state.solver_state.lock().await;
-
-    if let ProcessingState::Processing(_) = *solver_state {
-        return Err(ServerError::ProcessingAlreadyRunning);
-    }
-
-    // create cancellation token for the new processing task
-    let token = CancellationToken::new();
-    let task_token = token.clone();
-
     let instance = state
         .get_instance(&problem_id)
         .ok_or(ServerError::ProblemInstanceNotFound(problem_id.clone()))?;
 
-    tracing::debug!("Starting processing task");
+    let response = state
+        .run_cancellable(move |ctx| {
+            tracing::debug!(problem_id = %instance.problem_id, "Attempting to create response with full adjacency matrix");
+            TsplibInstanceWithMatrixResponse::try_from_instance(&instance, ctx)
+        })
+        .await?;
 
-    let handle = tokio::task::spawn_blocking(move || {
-        let cancellation = || task_token.is_cancelled();
-        let ctx = ExecutionContext::new(&cancellation);
-
-        if ctx.is_cancelled() {
-            return Err(ServerError::ProcessingCancelled);
-        }
-
-        tracing::debug!(problem_id = %instance.problem_id, "Attempting to create response with full adjacency matrix");
-        let response = TsplibInstanceWithMatrixResponse::try_from_instance(&instance, ctx)?;
-
-        if ctx.is_cancelled() {
-            return Err(ServerError::ProcessingCancelled);
-        }
-
-        Ok(response)
-    });
-
-    tracing::debug!("Processing task started, updating app state");
-    *solver_state = ProcessingState::Processing(token);
-    drop(solver_state);
-    tracing::debug!(state = ?state.solver_state, "App state updated");
-
-    // wait for the processing task to complete and get the result
-    tracing::debug!("Waiting for processing task to complete");
-    let result = handle.await;
-
-    // reset solver state to idle after completion
-    tracing::debug!("Processing task completed, resetting solver state to idle");
-    *state.solver_state.lock().await = ProcessingState::Idle;
-    tracing::debug!(state = ?state.solver_state, "App state updated, returning result");
-
-    match result {
-        Ok(Ok(response)) => {
-            tracing::info!(problem_id = %response.problem_id, "Successfully processed problem instance");
-            Ok(Json(response))
-        }
-        Ok(Err(e)) => Err(e),
-        Err(e) if e.is_cancelled() => Err(ServerError::ProcessingCancelled),
-        Err(e) => Err(ServerError::from(e)),
-    }
+    Ok(Json(response))
 }
 
 /// Get the full adjacency matrix for a specific TSP problem instance by its ID.
@@ -146,32 +98,13 @@ async fn get_adjacency_matrix(
 ) -> Result<Json<Vec<Vec<i32>>>, ServerError> {
     tracing::info!(problem_id = %problem_id, state = ?state.solver_state, "Received request to get full adjacency matrix for problem instance");
 
-    // check if any processing task is currently running
-    let mut solver_state = state.solver_state.lock().await;
-
-    if let ProcessingState::Processing(_) = *solver_state {
-        return Err(ServerError::ProcessingAlreadyRunning);
-    }
-
-    // create cancellation token for the new processing task
-    let token = CancellationToken::new();
-    let task_token = token.clone();
-
     let instance = state
         .get_instance(&problem_id)
         .ok_or(ServerError::ProblemInstanceNotFound(problem_id.clone()))?;
 
-    tracing::debug!("Starting processing task");
-
-    let handle = tokio::task::spawn_blocking(move || {
-        let cancellation = || task_token.is_cancelled();
-        let ctx = ExecutionContext::new(&cancellation);
-
-        if ctx.is_cancelled() {
-            return Err(ServerError::ProcessingCancelled);
-        }
-
-        tracing::debug!(problem_id = %instance.problem_id, "Attempting to create full adjacency matrix");
+    let matrix = state
+        .run_cancellable(move |ctx| {
+            tracing::debug!(problem_id = %instance.problem_id, "Attempting to create full adjacency matrix");
         let n = instance.nodes.len();
         let mut adjacency_matrix = vec![vec![0; n]; n];
 
@@ -190,40 +123,11 @@ async fn get_adjacency_matrix(
                 adjacency_matrix[j][i] = distance;
             }
         }
-
-        if ctx.is_cancelled() {
-            return Err(ServerError::ProcessingCancelled);
-        }
-
         Ok(adjacency_matrix)
-    });
+        })
+        .await?;
 
-    tracing::debug!("Processing task started, updating app state");
-    *solver_state = ProcessingState::Processing(token);
-    drop(solver_state);
-    tracing::debug!(state = ?state.solver_state, "App state updated");
-
-    // wait for the processing task to complete and get the result
-    tracing::debug!("Waiting for processing task to complete");
-    let result = handle.await;
-
-    // reset solver state to idle after completion
-    tracing::debug!("Processing task completed, resetting solver state to idle");
-    *state.solver_state.lock().await = ProcessingState::Idle;
-    tracing::debug!(state = ?state.solver_state, "App state updated, returning result");
-
-    match result {
-        Ok(Ok(response)) => {
-            tracing::info!(
-                problem_id = problem_id,
-                "Successfully processed problem instance"
-            );
-            Ok(Json(response))
-        }
-        Ok(Err(e)) => Err(e),
-        Err(e) if e.is_cancelled() => Err(ServerError::ProcessingCancelled),
-        Err(e) => Err(ServerError::from(e)),
-    }
+    Ok(Json(matrix))
 }
 
 // TODO: add endpoint to get the full problem without adjacency matrix
