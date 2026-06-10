@@ -1,8 +1,10 @@
 //! This module defines the EdgeWeightType enum, which specifies how the edge weights are defined in the problem instance.
 use std::fmt;
 
+use serde::Serialize;
+
 /// EdgeWeightType specifies how the edge weights are defined in the problem instance.
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, Serialize)]
 pub enum EdgeWeightType {
     /// EXPLICIT, Weights are listed explicitly in the corresponding section
     Explicit,

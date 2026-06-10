@@ -6,7 +6,7 @@ use blossom_v::BlossomVError;
 use thiserror::Error;
 use tsplib_core::enums::{
     GraphError,
-    InstanceError::{self, DistanceInvalidNodeId},
+    InstanceError::{self},
     MstComputationError,
 };
 
@@ -109,11 +109,7 @@ pub enum MatcherError {
 
 impl From<InstanceError> for SolverError {
     fn from(value: InstanceError) -> Self {
-        match value {
-            DistanceInvalidNodeId(_, _, _) => {
-                SolverError::DistanceRetrievalError(value.to_string())
-            }
-        }
+        SolverError::DistanceRetrievalError(value.to_string())
     }
 }
 
@@ -150,8 +146,6 @@ impl From<BlossomVError> for MatcherError {
 
 impl From<InstanceError> for MatcherError {
     fn from(value: InstanceError) -> Self {
-        match value {
-            DistanceInvalidNodeId(_, _, _) => MatcherError::BlossomVError(value.to_string()),
-        }
+        MatcherError::BlossomVError(value.to_string())
     }
 }

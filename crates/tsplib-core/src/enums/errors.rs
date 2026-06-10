@@ -10,6 +10,9 @@ pub enum InstanceError {
         "One of the node IDs is not between 1 and the dimension of the problem instance. Found {0} and {1}, expected IDs between 1 and {2}"
     )]
     DistanceInvalidNodeId(usize, usize, usize),
+
+    #[error("Unable to compute distance between nodes {0} and {1}: {2}")]
+    GetDistanceError(usize, usize, String),
 }
 
 /// IoError represents errors that can occur during file and directory operations.
@@ -76,11 +79,20 @@ pub enum MstComputationError {
     #[error("Adjacency matrix is empty, cannot compute MST.")]
     EmptyAdjacencyMatrix,
 
+    #[error("Kruskal's algorithm failed: {0}")]
+    KruskalMstError(String),
+
     #[error("Prim's algorithm failed: {0}")]
     PrimMstError(String),
 
     #[error("Borůvka's algorithm failed: {0}")]
     BoruvkaMstError(String),
+}
+
+impl From<InstanceError> for MstComputationError {
+    fn from(value: InstanceError) -> Self {
+        MstComputationError::KruskalMstError(value.to_string())
+    }
 }
 
 /// GraphError represents errors that can occur during graph-related operations, such as finding an Eulerian circuit.
