@@ -82,7 +82,7 @@ async fn get_problem(
     State(state): State<AppState>,
     Path(problem_id): Path<String>,
 ) -> Result<Json<TsplibInstance>, ServerError> {
-    tracing::info!(problem_id = %problem_id, state = ?state, "Received request to get problem instance");
+    tracing::info!(problem_id = %problem_id, state = ?state.solver_state, "Received request to get problem instance");
 
     // check if any processing task is currently running
     let mut solver_state = state.solver_state.lock().await;
@@ -117,7 +117,7 @@ async fn get_problem(
     tracing::debug!("Processing task started, updating app state");
     *solver_state = ProcessingState::Processing(token);
     drop(solver_state);
-    tracing::debug!(state = ?state, "App state updated");
+    tracing::debug!(state = ?state.solver_state, "App state updated");
 
     // wait for the processing task to complete and get the result
     tracing::debug!("Waiting for processing task to complete");
@@ -126,7 +126,7 @@ async fn get_problem(
     // reset solver state to idle after completion
     tracing::debug!("Processing task completed, resetting solver state to idle");
     *state.solver_state.lock().await = ProcessingState::Idle;
-    tracing::debug!(state = ?state, "App state updated, returning result");
+    tracing::debug!(state = ?state.solver_state, "App state updated, returning result");
 
     match result {
         Ok(Ok(problem)) => {

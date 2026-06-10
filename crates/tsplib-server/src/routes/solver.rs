@@ -137,7 +137,7 @@ async fn start_solver(
     tracing::debug!("Solver task spawned, updating app state");
     *solver_state = ProcessingState::Processing(token);
     drop(solver_state);
-    tracing::debug!(state = ?state, "App state updated");
+    tracing::debug!(state = ?state.solver_state, "App state updated");
 
     // wait for the solver to finish and get the result
     tracing::debug!("Waiting for solver task to complete");
@@ -146,7 +146,7 @@ async fn start_solver(
     // reset solver state to idle after completion
     tracing::debug!("Solver task completed, resetting solver state to idle");
     *state.solver_state.lock().await = ProcessingState::Idle;
-    tracing::debug!(state = ?state, "App state updated, returning result");
+    tracing::debug!(state = ?state.solver_state, "App state updated, returning result");
 
     match result {
         Ok(Ok(solution)) => {
