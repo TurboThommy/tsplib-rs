@@ -6,8 +6,8 @@ use crate::distances::{
     distance_att, distance_ceil_2d, distance_euc_2d, distance_geo, distance_man_2d, distance_max_2d,
 };
 use crate::enums::{
-    DataSection, DisplayDataType, EdgeDataFormat, EdgeWeightFormat, EdgeWeightType, NodeCoordType,
-    ProblemType,
+    DataSection, DisplayDataType, DistanceSource, EdgeDataFormat, EdgeWeightFormat, EdgeWeightType,
+    NodeCoordType, ProblemType,
 };
 
 use crate::enums::ConversionError;
@@ -116,7 +116,14 @@ impl TsplibDefinition {
         ctx: ExecutionContext,
     ) -> Result<TsplibInstance, ConversionError> {
         let nodes = self.try_extract_nodes()?;
-        let adjacency_matrix = self.try_calculate_adjacency_matrix(ctx)?;
+        // let adjacency_matrix = self.try_calculate_adjacency_matrix(ctx)?;
+
+        let distance_source = match self.edge_weight_type {
+            EdgeWeightType::Explicit => {
+                DistanceSource::Explicit(self.try_calculate_adjacency_matrix(ctx)?)
+            }
+            _ => DistanceSource::Geometric(self.edge_weight_type),
+        };
 
         // check for fixed edges
         let fixed_edges = self.data_sections.iter().find_map(|s| match s {
@@ -129,7 +136,8 @@ impl TsplibDefinition {
             name: self.name.clone(),
             problem_type: self.problem_type.clone(),
             nodes,
-            adjacency_matrix,
+            // adjacency_matrix,
+            distance_source,
             fixed_edges,
         })
     }

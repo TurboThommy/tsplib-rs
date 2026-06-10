@@ -2,7 +2,7 @@
 use axum::{http::StatusCode, response::IntoResponse};
 use thiserror::Error;
 use tokio::task::JoinError;
-use tsplib_core::enums::{ConversionError, IoError};
+use tsplib_core::enums::{ConversionError, InstanceError, IoError};
 use tsplib_parser::ParseError;
 use tsplib_solver::errors::SolverError;
 
@@ -108,5 +108,11 @@ impl From<JoinError> for ServerError {
 impl From<IoError> for ServerError {
     fn from(value: IoError) -> Self {
         ServerError::IoError(value.to_string())
+    }
+}
+
+impl From<InstanceError> for ServerError {
+    fn from(value: InstanceError) -> Self {
+        ServerError::ProblemParseError(value.to_string())
     }
 }

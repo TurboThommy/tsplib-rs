@@ -5,7 +5,7 @@
 use std::collections::HashSet;
 
 use tsplib_core::{
-    enums::ProblemType,
+    enums::{DistanceSource, EdgeWeightType, ProblemType},
     models::{Edge, Node, TsplibInstance},
 };
 
@@ -51,22 +51,6 @@ struct RandomInstance {
     vertices: Vec<usize>,
 }
 
-/// Calculates the Euclidean distance between two points in 2D space, rounding to the nearest integer.
-///
-/// # Arguments
-/// * `a` - The coordinates of the first point as a tuple `(i64, i64)`.
-/// * `b` - The coordinates of the second point as a tuple `(i64, i64)`.
-///
-/// # Returns
-/// * `i32` - The rounded Euclidean distance between the two points.
-fn euc_2d(a: (i64, i64), b: (i64, i64)) -> i32 {
-    {
-        let dx = (a.0 - b.0) as f64;
-        let dy = (a.1 - b.1) as f64;
-        (dx * dx + dy * dy).sqrt().round() as i32
-    }
-}
-
 fn random_instance(rng: &mut Rng, n: usize, coord_max: i64) -> RandomInstance {
     assert!(
         n.is_multiple_of(2),
@@ -82,15 +66,6 @@ fn random_instance(rng: &mut Rng, n: usize, coord_max: i64) -> RandomInstance {
         })
         .collect();
 
-    let mut adjacency_matrix = vec![vec![0i32; n]; n];
-    for i in 0..n {
-        for j in (i + 1)..n {
-            let d = euc_2d(coords[i], coords[j]);
-            adjacency_matrix[i][j] = d;
-            adjacency_matrix[j][i] = d;
-        }
-    }
-
     let nodes: Vec<Node> = (0..n)
         .map(|i| Node {
             id: i + 1,
@@ -100,12 +75,15 @@ fn random_instance(rng: &mut Rng, n: usize, coord_max: i64) -> RandomInstance {
         })
         .collect();
 
+    let distance_source = DistanceSource::Geometric(EdgeWeightType::Euc2D);
+
     let instance = TsplibInstance {
         problem_id: "oracle".to_string(),
         name: "oracle".to_string(),
         problem_type: ProblemType::TSP,
         nodes,
-        adjacency_matrix,
+        // adjacency_matrix,
+        distance_source,
         fixed_edges: None,
     };
 
@@ -189,30 +167,6 @@ fn describe(inst: &RandomInstance, seed: u64) -> String {
         .collect::<Vec<_>>()
         .join("\n");
     format!("seed={seed}, n={},\ncoords:\n{coords}", inst.coords.len())
-}
-
-/// Runs Blossom V if the feature is enabled; otherwise returns None.
-///
-/// # Arguments
-/// * `inst` - The `RandomInstance` to solve with Blossom V, containing the coordinates and instance information.
-///
-/// # Returns
-/// * `Option<Result<i64, String>>` - An optional result containing the cost of the matching found by Blossom V,
-///   or an error message if Blossom V is not enabled or if it encounters an error during execution.
-#[cfg(feature = "blossom-v")]
-fn blossom_v_cost(inst: &RandomInstance) -> Option<Result<i64, String>> {
-    use tsplib_solver::BlossomVMatching;
-
-    use crate::BlossomVMatching;
-    let ctx = describe(inst, 0);
-    let res = BlossomVMatching::new()
-        .try_compute(&inst.vertices, &inst.instance)
-        .map_err(|e| format!("Blossom V errored: {e}"))
-        .and_then(|edges| {
-            assert_perfect(&edges, &inst.vertices, "Blossom V", &ctx);
-            Ok(matching_cost(&edges, &inst.instance))
-        });
-    Some(res)
 }
 
 #[cfg(not(feature = "blossom-v"))]
@@ -334,34 +288,6 @@ fn oracle_burma14_odd_set() {
     ];
     let n = coords.len();
 
-    // GEO distance, matching tsplib-core::distances.
-    fn latlon(x: f64, y: f64) -> (f64, f64) {
-        let pi = 3.141592;
-        let dx = x.trunc();
-        let lat = pi * (dx + 5.0 * (x - dx) / 3.0) / 180.0;
-        let dy = y.trunc();
-        let lon = pi * (dy + 5.0 * (y - dy) / 3.0) / 180.0;
-        (lat, lon)
-    }
-    fn geo(a: (f64, f64), b: (f64, f64)) -> i32 {
-        let (lat1, lon1) = latlon(a.0, a.1);
-        let (lat2, lon2) = latlon(b.0, b.1);
-        let rrr = 6378.388;
-        let q1 = (lon1 - lon2).cos();
-        let q2 = (lat1 - lat2).cos();
-        let q3 = (lat1 + lat2).cos();
-        let arg = (0.5 * ((1.0 + q1) * q2 - (1.0 - q1) * q3)).clamp(-1.0, 1.0);
-        (rrr * arg.acos() + 1.0) as i32
-    }
-
-    let mut adjacency_matrix = vec![vec![0i32; n]; n];
-    for i in 0..n {
-        for j in (i + 1)..n {
-            let d = geo(coords[i], coords[j]);
-            adjacency_matrix[i][j] = d;
-            adjacency_matrix[j][i] = d;
-        }
-    }
     let nodes: Vec<Node> = (0..n)
         .map(|i| Node {
             id: i + 1,
@@ -370,12 +296,16 @@ fn oracle_burma14_odd_set() {
             z: None,
         })
         .collect();
+
+    let distance_source = DistanceSource::Geometric(EdgeWeightType::Geo);
+
     let instance = TsplibInstance {
         problem_id: "burma14_odd".to_string(),
         name: "burma14_odd".to_string(),
         problem_type: ProblemType::TSP,
         nodes,
-        adjacency_matrix,
+        // adjacency_matrix,
+        distance_source,
         fixed_edges: None,
     };
     let vertices: Vec<usize> = (1..=n).collect();

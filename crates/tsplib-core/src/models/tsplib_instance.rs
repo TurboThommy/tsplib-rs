@@ -4,7 +4,7 @@ use serde::Serialize;
 
 use crate::{
     context::ExecutionContext,
-    enums::{ConversionError, InstanceError, MstComputationError, ProblemType},
+    enums::{ConversionError, DistanceSource, InstanceError, MstComputationError, ProblemType},
     minimum_spanning_tree::{try_get_mst_boruvka, try_get_mst_kruskal, try_get_mst_prim},
     models::{Graph, Node, TsplibDefinition},
 };
@@ -25,25 +25,25 @@ pub struct TsplibInstance {
     pub nodes: Vec<Node>,
 
     /// The adjacency matrix representing the distances between nodes.
-    pub adjacency_matrix: Vec<Vec<i32>>,
+    // pub adjacency_matrix: Vec<Vec<i32>>,
+
+    /// The distance source for the problem instance, which can be used
+    /// to compute distances on demand instead of storing a full adjacency matrix.
+    pub distance_source: DistanceSource,
 
     /// Optional fixed edges that must be included in the solution.
     pub fixed_edges: Option<Vec<(usize, usize)>>,
 }
 
 impl TsplibInstance {
-    /// Estimates the heap size of the `ProblemInstance` by calculating the size of its nodes and adjacency matrix.
+    /// Estimates the heap size of the `TsplibInstance` by calculating the size of its nodes and adjacency matrix.
     /// This is a rough estimation and may not be exact due to Rust's memory management and optimizations.
     ///
     /// # Returns
     /// * `usize` - The estimated heap size in bytes.
     pub fn heap_size(&self) -> usize {
         let nodes_size = self.nodes.len() * std::mem::size_of::<Node>();
-        let matrix_size = self.adjacency_matrix.len()
-            * self.adjacency_matrix.first().map_or(0, |r| r.len())
-            * std::mem::size_of::<i32>();
-
-        nodes_size + matrix_size
+        nodes_size + self.distance_source.heap_size()
     }
 
     /// Tries to get the distance between two nodes from the adjacency matrix.
@@ -55,18 +55,24 @@ impl TsplibInstance {
     /// # Returns
     /// * `Result<i32, InstanceError>` - The distance between the nodes if valid, or an error if the node IDs are invalid.
     pub fn try_get_distance(&self, from: usize, to: usize) -> Result<i32, InstanceError> {
-        if from == 0
-            || to == 0
-            || from > self.adjacency_matrix.len()
-            || to > self.adjacency_matrix.len()
-        {
+        if from == 0 || to == 0 || from > self.nodes.len() || to > self.nodes.len() {
             return Err(InstanceError::DistanceInvalidNodeId(
                 from,
                 to,
-                self.adjacency_matrix.len(),
+                self.nodes.len(),
             ));
         }
-        Ok(self.adjacency_matrix[from - 1][to - 1])
+
+        match &self.distance_source {
+            DistanceSource::Explicit(matrix) => Ok(matrix[from - 1][to - 1]),
+            DistanceSource::Geometric(edge_weight_type) => {
+                let node_from = &self.nodes[from - 1];
+                let node_to = &self.nodes[to - 1];
+                node_from
+                    .try_get_distance(node_to, edge_weight_type)
+                    .map_err(|e| InstanceError::GetDistanceError(from, to, e.to_string()))
+            }
+        }
     }
 
     /// Tries to compute the minimum spanning tree (MST) of the TSP instance using Kruskal's algorithm.
