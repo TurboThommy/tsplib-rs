@@ -36,19 +36,14 @@ pub struct TsplibInstance {
 }
 
 impl TsplibInstance {
-    /// Estimates the heap size of the `ProblemInstance` by calculating the size of its nodes and adjacency matrix.
+    /// Estimates the heap size of the `TsplibInstance` by calculating the size of its nodes and adjacency matrix.
     /// This is a rough estimation and may not be exact due to Rust's memory management and optimizations.
     ///
     /// # Returns
     /// * `usize` - The estimated heap size in bytes.
     pub fn heap_size(&self) -> usize {
-        todo!()
-        // let nodes_size = self.nodes.len() * std::mem::size_of::<Node>();
-        // let matrix_size = self.adjacency_matrix.len()
-        //     * self.adjacency_matrix.first().map_or(0, |r| r.len())
-        //     * std::mem::size_of::<i32>();
-
-        // nodes_size + matrix_size
+        let nodes_size = self.nodes.len() * std::mem::size_of::<Node>();
+        nodes_size + self.distance_source.heap_size()
     }
 
     /// Tries to get the distance between two nodes from the adjacency matrix.
