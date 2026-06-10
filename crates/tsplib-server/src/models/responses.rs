@@ -207,3 +207,12 @@ impl TsplibInstanceWithMatrixResponse {
         })
     }
 }
+
+#[derive(Serialize)]
+pub(crate) struct TsplibInstanceResponse {
+    pub problem_id: String,
+    pub name: String,
+    pub problem_type: ProblemType,
+    pub nodes: Vec<Node>,
+    pub fixed_edges: Option<Vec<(usize, usize)>>,
+}

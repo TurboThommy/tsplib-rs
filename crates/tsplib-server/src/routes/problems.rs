@@ -2,7 +2,9 @@
 
 use crate::{
     errors::ServerError,
-    models::responses::{ProblemDescriptionResponse, TsplibInstanceWithMatrixResponse},
+    models::responses::{
+        ProblemDescriptionResponse, TsplibInstanceResponse, TsplibInstanceWithMatrixResponse,
+    },
     state::AppState,
 };
 
@@ -20,6 +22,10 @@ pub fn router() -> Router<AppState> {
         .route(
             "/problems/{problemId}/adjacency_matrix",
             get(get_adjacency_matrix),
+        )
+        .route(
+            "/problems/{problemId}/no_matrix",
+            get(get_problem_without_matrix),
         )
 }
 
@@ -130,7 +136,33 @@ async fn get_adjacency_matrix(
     Ok(Json(matrix))
 }
 
-// TODO: add endpoint to get the full problem without adjacency matrix
+/// Get a specific TSP problem instance by its ID without the adjacency matrix, which can be expensive to compute for large instances.
+///
+/// # Arguments
+/// * `problem_id` - The ID of the problem instance to retrieve.
+///
+/// # Returns
+/// * `Json<TsplibInstanceResponse>` - The problem instance data without the adjacency matrix in JSON format or an error if the problem is not found.
+async fn get_problem_without_matrix(
+    State(state): State<AppState>,
+    Path(problem_id): Path<String>,
+) -> Result<Json<TsplibInstanceResponse>, ServerError> {
+    tracing::info!(problem_id = %problem_id, "Received request to get problem instance without adjacency matrix");
+
+    let instance = state
+        .get_instance(&problem_id)
+        .ok_or(ServerError::ProblemInstanceNotFound(problem_id.clone()))?;
+
+    let response = TsplibInstanceResponse {
+        problem_id: instance.problem_id.clone(),
+        name: instance.name.clone(),
+        problem_type: instance.problem_type.clone(),
+        nodes: instance.nodes.clone(),
+        fixed_edges: instance.fixed_edges.clone(),
+    };
+
+    Ok(Json(response))
+}
 
 // TODO: add endpoint to get a specific edge
 
