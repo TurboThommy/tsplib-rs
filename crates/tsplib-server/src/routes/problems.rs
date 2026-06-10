@@ -2,8 +2,11 @@
 
 use crate::{
     errors::ServerError,
-    models::responses::{
-        ProblemDescriptionResponse, TsplibInstanceResponse, TsplibInstanceWithMatrixResponse,
+    models::{
+        requests::EdgeBetweenRequest,
+        responses::{
+            ProblemDescriptionResponse, TsplibInstanceResponse, TsplibInstanceWithMatrixResponse,
+        },
     },
     state::AppState,
 };
@@ -27,6 +30,7 @@ pub fn router() -> Router<AppState> {
             "/problems/{problemId}/no_matrix",
             get(get_problem_without_matrix),
         )
+        .route("/problems/{problemId}/edges", get(get_edge))
 }
 
 /// Get the list of available TSP problem instances from the "./data" directory.
@@ -164,6 +168,35 @@ async fn get_problem_without_matrix(
     Ok(Json(response))
 }
 
-// TODO: add endpoint to get a specific edge
+/// Get the cost of a specific edge between two nodes in a TSP problem instance.
+///
+/// # Arguments
+/// * `state` - The shared application state containing the preloaded problem instances and their metadata.
+/// * `problem_id` - The ID of the problem instance to query.
+/// * `from` - The starting node of the edge to query.
+/// * `to` - The ending node of the edge to query.
+///
+/// # Returns
+/// * `Json<i32>` - The cost of the edge between the specified nodes in JSON format or an error if the problem instance is not found.
+async fn get_edge(
+    State(state): State<AppState>,
+    Path(problem_id): Path<String>,
+    Json(request): Json<EdgeBetweenRequest>,
+) -> Result<Json<i32>, ServerError> {
+    tracing::info!(
+        problem_id = %problem_id,
+        from = %request.from,
+        to = %request.to,
+        "Received request to get distance between two nodes"
+    );
+
+    let instance = state
+        .get_instance(&problem_id)
+        .ok_or(ServerError::ProblemInstanceNotFound(problem_id.clone()))?;
+
+    let distance = instance.try_get_distance(request.from, request.to)?;
+
+    Ok(Json(distance))
+}
 
 // TODO: add endpoint to get all edges for a specific node

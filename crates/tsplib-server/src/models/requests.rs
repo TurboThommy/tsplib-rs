@@ -15,3 +15,13 @@ pub struct StartSolverRequest {
     /// Additional options for the solver, if applicable.
     pub solver_options: Option<SolverOptions>,
 }
+
+/// This struct represents the request to get the cost of a specific edge in a TSP problem instance.
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct EdgeBetweenRequest {
+    /// The starting node of the edge to query.
+    pub from: usize,
+    /// The ending node of the edge to query.
+    pub to: usize,
+}
