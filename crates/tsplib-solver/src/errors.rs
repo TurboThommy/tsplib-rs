@@ -107,6 +107,12 @@ pub enum MatcherError {
     BlossomExpansionNotImplemented,
 }
 
+#[derive(Error, Debug, PartialEq)]
+pub enum SimplexError {
+    #[error("The linear program is unbounded.")]
+    Unbounded,
+}
+
 impl From<InstanceError> for SolverError {
     fn from(value: InstanceError) -> Self {
         SolverError::DistanceRetrievalError(value.to_string())
