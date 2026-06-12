@@ -56,13 +56,6 @@ fn assert_canonical(a: &[Vec<f64>], b: &[f64], c: &[f64], basis: &[usize]) {
             c[col]
         );
     }
-
-    for (i, &b_i) in b.iter().enumerate() {
-        assert!(
-            b_i >= -EPS,
-            "b[{i}] = {b_i} < 0, starting base is not primal feasible"
-        );
-    }
 }
 
 fn pivot(
@@ -125,38 +118,34 @@ fn try_primal_simplex(
 
     assert_dimensions(&a, &b, &c);
     assert_canonical(&a, &b, &c, &basis);
+    for (i, &b_i) in b.iter().enumerate() {
+        assert!(
+            b_i >= -EPS,
+            "b[{i}] = {b_i} < 0, starting base is not primal feasible"
+        );
+    }
 
     // Main loop of the primal simplex algorithm
     while c.iter().any(|&x| x < -EPS) {
-        let (s, _) = c
+        let s = c
             .iter()
             .enumerate()
-            .fold(
-                (usize::MAX, f64::INFINITY),
-                |(a_i, a), (i, &x)| match PartialOrd::partial_cmp(&a, &x) {
-                    None => (usize::MAX, f64::NAN),
-                    Some(Ordering::Less) => (a_i, a),
-                    Some(_) => (i, x),
-                },
-            );
+            .min_by(|(_, a), (_, b)| a.total_cmp(b))
+            .map(|(i, _)| i)
+            .unwrap();
 
-        assert!(
-            s != usize::MAX,
-            "No valid entering variable found, this should not happen if the algorithm is implemented correctly"
-        );
-
-        let (z, _) = (0..m)
+        let z = (0..m)
             .filter_map(|j| {
                 let a_js = a[j][s];
                 (a_js > EPS).then(|| (j, b[j] / a_js))
             })
-            .fold((usize::MAX, f64::INFINITY), |(a_i, a), (b_i, b)| {
-                if b < a { (b_i, b) } else { (a_i, a) }
-            });
+            .min_by(|(_, a), (_, b)| a.total_cmp(b))
+            .map(|(j, _)| j);
 
-        if z == usize::MAX {
-            return Err(SimplexError::Unbounded);
-        }
+        let z = match z {
+            Some(j) => j,
+            None => return Err(SimplexError::Unbounded),
+        };
 
         pivot(&mut a, &mut b, &mut c, &mut basis, z, s);
     }
@@ -170,48 +159,132 @@ fn try_primal_simplex(
     Ok((x, basis))
 }
 
-#[cfg(test)]
-#[test]
-fn test_primal_simplex() {
-    let a = vec![
-        vec![1.0, 1.0, 1.0, 0.0, 0.0],
-        vec![6.0, 9.0, 0.0, 1.0, 0.0],
-        vec![0.0, 1.0, 0.0, 0.0, 1.0],
-    ];
+fn try_dual_simplex(
+    mut a: Vec<Vec<f64>>,
+    mut b: Vec<f64>,
+    mut c: Vec<f64>,
+    mut basis: Vec<usize>,
+) -> Result<(Vec<f64>, Vec<usize>), SimplexError> {
+    let n = c.len();
 
-    let b = vec![100.0, 720.0, 60.0];
-    let c = vec![-10.0, -20.0, 0.0, 0.0, 0.0];
-    let basis = vec![2, 3, 4];
+    assert_dimensions(&a, &b, &c);
+    assert_canonical(&a, &b, &c, &basis);
 
-    let c_orig = c.clone();
+    while b.iter().any(|&x| x < -EPS) {
+        let z = b
+            .iter()
+            .enumerate()
+            .min_by(|(_, a), (_, b)| a.total_cmp(b))
+            .map(|(i, _)| i)
+            .unwrap();
 
-    let (x, basis) =
-        try_primal_simplex(a, b, c, basis).expect("Primal simplex should find an optimal solution");
+        let s = (0..n)
+            .filter_map(|i| {
+                let a_zj = a[z][i];
+                (a_zj < -EPS).then(|| (i, c[i] / a_zj))
+            })
+            .max_by(|(_, a), (_, b)| a.total_cmp(b))
+            .map(|(i, _)| i);
 
-    tracing::debug!("Optimal solution: {:?}", x);
-    tracing::debug!("Optimal basis: {:?}", basis);
+        let s = match s {
+            Some(i) => i,
+            None => return Err(SimplexError::Infeasible),
+        };
 
-    assert!((x[0] - 30.0).abs() < 1e-9); // x1
-    assert!((x[1] - 60.0).abs() < 1e-9); // x2
-    assert!((x[2] - 10.0).abs() < 1e-9); // slack variable for first constraint
-    assert!((x[3].abs() < 1e-9)); // slack variable for second constraint
-    assert!((x[4].abs() < 1e-9)); // slack variable for third constraint
+        pivot(&mut a, &mut b, &mut c, &mut basis, z, s);
+    }
 
-    assert_eq!(basis, vec![2, 0, 1]);
-
-    let obj: f64 = c_orig.iter().zip(&x).map(|(&c_i, x_i)| c_i * x_i).sum();
-    assert!((obj + 1500.0).abs() < 1e-9); // min -1500 = max 1500
+    try_primal_simplex(a, b, c, basis)
 }
 
-#[test]
-fn test_primal_simplex_unbounded() {
-    let a = vec![vec![-1.0, 1.0]];
-    let b = vec![1.0];
-    let c = vec![-1.0, 0.0];
-    let basis = vec![1];
+#[cfg(test)]
+mod tests {
+    use crate::{
+        errors::SimplexError,
+        solver::lp_relaxation::{try_dual_simplex, try_primal_simplex},
+    };
 
-    assert_eq!(
-        try_primal_simplex(a, b, c, basis),
-        Err(SimplexError::Unbounded)
-    );
+    #[test]
+    fn test_primal_simplex() {
+        let a = vec![
+            vec![1.0, 1.0, 1.0, 0.0, 0.0],
+            vec![6.0, 9.0, 0.0, 1.0, 0.0],
+            vec![0.0, 1.0, 0.0, 0.0, 1.0],
+        ];
+
+        let b = vec![100.0, 720.0, 60.0];
+        let c = vec![-10.0, -20.0, 0.0, 0.0, 0.0];
+        let basis = vec![2, 3, 4];
+
+        let c_orig = c.clone();
+
+        let (x, basis) = try_primal_simplex(a, b, c, basis)
+            .expect("Primal simplex should find an optimal solution");
+
+        assert!((x[0] - 30.0).abs() < 1e-9); // x1
+        assert!((x[1] - 60.0).abs() < 1e-9); // x2
+        assert!((x[2] - 10.0).abs() < 1e-9); // slack variable for first constraint
+        assert!((x[3].abs() < 1e-9)); // slack variable for second constraint
+        assert!((x[4].abs() < 1e-9)); // slack variable for third constraint
+
+        assert_eq!(basis, vec![2, 0, 1]);
+
+        let obj: f64 = c_orig.iter().zip(&x).map(|(&c_i, x_i)| c_i * x_i).sum();
+        assert!((obj + 1500.0).abs() < 1e-9); // min -1500 = max 1500
+    }
+
+    #[test]
+    fn test_primal_simplex_unbounded() {
+        let a = vec![vec![-1.0, 1.0]];
+        let b = vec![1.0];
+        let c = vec![-1.0, 0.0];
+        let basis = vec![1];
+
+        assert_eq!(
+            try_primal_simplex(a, b, c, basis),
+            Err(SimplexError::Unbounded)
+        );
+    }
+
+    #[test]
+    fn test_dual_simplex() {
+        let a = vec![
+            vec![-1.0, -1.0, 1.0, 0.0, 0.0],
+            vec![-3.0, -1.0, 0.0, 1.0, 0.0],
+            vec![1.0, 1.0, 0.0, 0.0, 1.0],
+        ];
+
+        let b = vec![-8.0, -12.0, 10.0];
+        let c = vec![-2.0, -1.0, 0.0, 0.0, 0.0];
+        let basis = vec![2, 3, 4];
+
+        let c_orig = c.clone();
+
+        let (x, basis) =
+            try_dual_simplex(a, b, c, basis).expect("Dual simplex should find an optimal solution");
+
+        assert!((x[0] - 10.0).abs() < 1e-9); // x1
+        assert!(x[1].abs() < 1e-9); // x2
+        assert!((x[2] - 2.0).abs() < 1e-9); // slack variable for first constraint
+        assert!((x[3] - 18.0).abs() < 1e-9); // slack variable for second constraint
+        assert!(x[4].abs() < 1e-9); // slack variable for third constraint
+
+        assert_eq!(basis, vec![2, 3, 0]);
+
+        let obj: f64 = c_orig.iter().zip(&x).map(|(&c_i, x_i)| c_i * x_i).sum();
+        assert!((obj + 20.0).abs() < 1e-9);
+    }
+
+    #[test]
+    fn test_dual_simplex_infeasible() {
+        let a = vec![vec![1.0, 1.0, 1.0, 0.0], vec![1.0, 0.0, 0.0, 1.0]];
+        let b = vec![-1.0, 5.0];
+        let c = vec![1.0, 1.0, 0.0, 0.0];
+        let basis = vec![2, 3];
+
+        assert_eq!(
+            try_dual_simplex(a, b, c, basis),
+            Err(SimplexError::Infeasible)
+        )
+    }
 }

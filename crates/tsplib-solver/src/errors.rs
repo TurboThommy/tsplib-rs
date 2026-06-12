@@ -111,6 +111,8 @@ pub enum MatcherError {
 pub enum SimplexError {
     #[error("The linear program is unbounded.")]
     Unbounded,
+    #[error("The linear program is infeasible.")]
+    Infeasible,
 }
 
 impl From<InstanceError> for SolverError {
