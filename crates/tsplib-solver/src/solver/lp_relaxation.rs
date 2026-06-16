@@ -2,7 +2,7 @@
 //! The LP relaxation is a linear programming formulation of the TSP that relaxes the integer constraints
 //! on the decision variables, allowing them to take on fractional values.
 
-use std::{cmp::Ordering, f64};
+use std::f64;
 
 use crate::errors::SimplexError;
 
@@ -108,16 +108,16 @@ fn pivot(
 // c -> n; vector of coefficients for the objective function
 // basis -> m; vector of indices of the basic variables (initially, this should be the indices of the slack variables)
 fn try_primal_simplex(
-    mut a: Vec<Vec<f64>>,
-    mut b: Vec<f64>,
-    mut c: Vec<f64>,
-    mut basis: Vec<usize>,
-) -> Result<(Vec<f64>, Vec<usize>), SimplexError> {
+    a: &mut [Vec<f64>],
+    b: &mut [f64],
+    c: &mut [f64],
+    basis: &mut [usize],
+) -> Result<Vec<f64>, SimplexError> {
     let m = b.len();
     let n = c.len();
 
-    assert_dimensions(&a, &b, &c);
-    assert_canonical(&a, &b, &c, &basis);
+    assert_dimensions(a, b, c);
+    assert_canonical(a, b, c, basis);
     for (i, &b_i) in b.iter().enumerate() {
         assert!(
             b_i >= -EPS,
@@ -147,28 +147,28 @@ fn try_primal_simplex(
             None => return Err(SimplexError::Unbounded),
         };
 
-        pivot(&mut a, &mut b, &mut c, &mut basis, z, s);
+        pivot(a, b, c, basis, z, s);
     }
 
     let mut x = vec![0.0; n];
-    for &i in &basis {
+    for &i in basis.iter() {
         if let Some(j) = (0..m).find(|&j| (a[j][i] - 1.0).abs() < EPS) {
             x[i] = b[j];
         }
     }
-    Ok((x, basis))
+    Ok(x)
 }
 
 fn try_dual_simplex(
-    mut a: Vec<Vec<f64>>,
-    mut b: Vec<f64>,
-    mut c: Vec<f64>,
-    mut basis: Vec<usize>,
-) -> Result<(Vec<f64>, Vec<usize>), SimplexError> {
+    a: &mut [Vec<f64>],
+    b: &mut [f64],
+    c: &mut [f64],
+    basis: &mut [usize],
+) -> Result<Vec<f64>, SimplexError> {
     let n = c.len();
 
-    assert_dimensions(&a, &b, &c);
-    assert_canonical(&a, &b, &c, &basis);
+    assert_dimensions(a, b, c);
+    assert_canonical(a, b, c, basis);
 
     while b.iter().any(|&x| x < -EPS) {
         let z = b
@@ -191,7 +191,7 @@ fn try_dual_simplex(
             None => return Err(SimplexError::Infeasible),
         };
 
-        pivot(&mut a, &mut b, &mut c, &mut basis, z, s);
+        pivot(a, b, c, basis, z, s);
     }
 
     try_primal_simplex(a, b, c, basis)
@@ -206,19 +206,19 @@ mod tests {
 
     #[test]
     fn test_primal_simplex() {
-        let a = vec![
+        let mut a = vec![
             vec![1.0, 1.0, 1.0, 0.0, 0.0],
             vec![6.0, 9.0, 0.0, 1.0, 0.0],
             vec![0.0, 1.0, 0.0, 0.0, 1.0],
         ];
 
-        let b = vec![100.0, 720.0, 60.0];
-        let c = vec![-10.0, -20.0, 0.0, 0.0, 0.0];
-        let basis = vec![2, 3, 4];
+        let mut b = vec![100.0, 720.0, 60.0];
+        let mut c = vec![-10.0, -20.0, 0.0, 0.0, 0.0];
+        let mut basis = vec![2, 3, 4];
 
         let c_orig = c.clone();
 
-        let (x, basis) = try_primal_simplex(a, b, c, basis)
+        let x = try_primal_simplex(&mut a, &mut b, &mut c, &mut basis)
             .expect("Primal simplex should find an optimal solution");
 
         assert!((x[0] - 30.0).abs() < 1e-9); // x1
@@ -235,33 +235,33 @@ mod tests {
 
     #[test]
     fn test_primal_simplex_unbounded() {
-        let a = vec![vec![-1.0, 1.0]];
-        let b = vec![1.0];
-        let c = vec![-1.0, 0.0];
-        let basis = vec![1];
+        let mut a = vec![vec![-1.0, 1.0]];
+        let mut b = vec![1.0];
+        let mut c = vec![-1.0, 0.0];
+        let mut basis = vec![1];
 
         assert_eq!(
-            try_primal_simplex(a, b, c, basis),
+            try_primal_simplex(&mut a, &mut b, &mut c, &mut basis),
             Err(SimplexError::Unbounded)
         );
     }
 
     #[test]
     fn test_dual_simplex() {
-        let a = vec![
+        let mut a = vec![
             vec![-1.0, -1.0, 1.0, 0.0, 0.0],
             vec![-3.0, -1.0, 0.0, 1.0, 0.0],
             vec![1.0, 1.0, 0.0, 0.0, 1.0],
         ];
 
-        let b = vec![-8.0, -12.0, 10.0];
-        let c = vec![-2.0, -1.0, 0.0, 0.0, 0.0];
-        let basis = vec![2, 3, 4];
+        let mut b = vec![-8.0, -12.0, 10.0];
+        let mut c = vec![-2.0, -1.0, 0.0, 0.0, 0.0];
+        let mut basis = vec![2, 3, 4];
 
         let c_orig = c.clone();
 
-        let (x, basis) =
-            try_dual_simplex(a, b, c, basis).expect("Dual simplex should find an optimal solution");
+        let x = try_dual_simplex(&mut a, &mut b, &mut c, &mut basis)
+            .expect("Dual simplex should find an optimal solution");
 
         assert!((x[0] - 10.0).abs() < 1e-9); // x1
         assert!(x[1].abs() < 1e-9); // x2
@@ -277,13 +277,13 @@ mod tests {
 
     #[test]
     fn test_dual_simplex_infeasible() {
-        let a = vec![vec![1.0, 1.0, 1.0, 0.0], vec![1.0, 0.0, 0.0, 1.0]];
-        let b = vec![-1.0, 5.0];
-        let c = vec![1.0, 1.0, 0.0, 0.0];
-        let basis = vec![2, 3];
+        let mut a = vec![vec![1.0, 1.0, 1.0, 0.0], vec![1.0, 0.0, 0.0, 1.0]];
+        let mut b = vec![-1.0, 5.0];
+        let mut c = vec![1.0, 1.0, 0.0, 0.0];
+        let mut basis = vec![2, 3];
 
         assert_eq!(
-            try_dual_simplex(a, b, c, basis),
+            try_dual_simplex(&mut a, &mut b, &mut c, &mut basis),
             Err(SimplexError::Infeasible)
         )
     }
