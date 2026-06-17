@@ -1,3 +1,5 @@
+use std::collections::HashSet;
+
 #[cfg(test)]
 use tsplib_core::{
     enums::{DistanceSource, EdgeWeightType, ProblemType},
@@ -7,8 +9,8 @@ use tsplib_core::{
 use crate::{
     errors::SimplexError,
     solver::lp_relaxation::{
-        assert_canonical, assert_dimensions, canonicalize_cost, edge_col, try_build_tableau,
-        try_dual_simplex, try_primal_simplex, try_solve_initial,
+        add_subtour_cut, assert_canonical, assert_dimensions, canonicalize_cost, cut_edges_for_set,
+        edge_col, try_build_tableau, try_dual_simplex, try_primal_simplex, try_solve_initial,
     },
 };
 
@@ -281,4 +283,34 @@ fn test_solve_initial_lp() {
             "Node {v} has degree {degree}, expected 2"
         );
     }
+}
+
+#[test]
+fn test_add_subtour_cut() {
+    let problem = make_test_instance();
+    let ((mut a, mut b, mut c, mut basis), _) =
+        try_solve_initial(&problem).expect("Initial LP should be solved successfully");
+
+    let s: HashSet<usize> = [1, 2].into_iter().collect();
+    let cut = cut_edges_for_set(4, &s);
+    add_subtour_cut(&mut a, &mut b, &mut c, &mut basis, &cut);
+
+    assert_dimensions(&a, &b, &c);
+    assert_canonical(&a, &b, &c, &basis);
+
+    let x = try_dual_simplex(&mut a, &mut b, &mut c, &mut basis)
+        .expect("Dual simplex should solve after adding subtour cut");
+
+    for v in 1..=4 {
+        let deg = (1..=4)
+            .filter(|&w| w != v)
+            .map(|w| x[edge_col(v, w)])
+            .sum::<f64>();
+        assert!((deg - 2.0).abs() < 1e-9);
+    }
+    let crossing = cut.iter().map(|&k| x[k]).sum::<f64>();
+    assert!(
+        crossing >= 2.0 - 1e-9,
+        "Subtour cut not satisfied, crossing value: {crossing}"
+    );
 }

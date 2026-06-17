@@ -2,7 +2,7 @@
 //! The LP relaxation is a linear programming formulation of the TSP that relaxes the integer constraints
 //! on the decision variables, allowing them to take on fractional values.
 
-use std::f64;
+use std::{collections::HashSet, f64};
 
 use tsplib_core::models::TsplibInstance;
 
@@ -183,6 +183,62 @@ fn canonicalize_cost(a: &[Vec<f64>], c: &mut [f64], basis: &[usize]) {
             }
         }
     }
+}
+
+fn add_subtour_cut(
+    a: &mut Vec<Vec<f64>>,
+    b: &mut Vec<f64>,
+    c: &mut Vec<f64>,
+    basis: &mut Vec<usize>,
+    cut_edges: &[usize],
+) {
+    let m = b.len();
+    let n = c.len(); // == index of new slack column
+
+    // add new column to each row as well as c
+    for row in a.iter_mut() {
+        row.push(0.0);
+    }
+    c.push(0.0);
+
+    // add new row for subtour cut: -sum_cut x + s = -2
+    let mut new_row = vec![0.0; n + 1];
+    for &col in cut_edges {
+        new_row[col] = -1.0;
+    }
+    new_row[n] = 1.0; // coefficient for new slack variable
+    let mut new_rhs = -2.0; // right-hand side for subtour cut
+
+    // eliminate basis variables from the new row
+    for i in 0..m {
+        let f: f64 = new_row[basis[i]];
+        if f.abs() > EPS {
+            for j in 0..new_row.len() {
+                new_row[j] -= f * a[i][j];
+            }
+
+            new_rhs -= f * b[i];
+        }
+    }
+
+    // add new row to tableau
+    a.push(new_row);
+    b.push(new_rhs);
+
+    // new slack variable becomes basic
+    basis.push(n);
+}
+
+fn cut_edges_for_set(node_count: usize, s: &HashSet<usize>) -> Vec<usize> {
+    let mut cols = Vec::new();
+    for i in 1..=node_count {
+        for j in 1..i {
+            if s.contains(&i) ^ s.contains(&j) {
+                cols.push(edge_index(i, j));
+            }
+        }
+    }
+    cols
 }
 
 fn try_solve_initial(problem: &TsplibInstance) -> Result<(Tableau, Vec<f64>), SolverError> {
