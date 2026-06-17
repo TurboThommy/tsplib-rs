@@ -12,6 +12,12 @@ const EPS: f64 = 1e-9;
 
 pub struct LpRelaxation {}
 
+#[derive(Debug, Clone)]
+pub struct LpRelaxationResult {
+    pub lower_bound: f64,
+    pub edges: Vec<(usize, usize, f64)>,
+}
+
 type Tableau = (Vec<Vec<f64>>, Vec<f64>, Vec<f64>, Vec<usize>);
 
 fn assert_dimensions(a: &[Vec<f64>], b: &[f64], c: &[f64]) {
@@ -319,6 +325,21 @@ fn min_cut(weights: &[Vec<f64>], node_count: usize) -> (f64, HashSet<usize>) {
     (best_weight, best_set)
 }
 
+fn build_weight_matrix(x: &[f64], node_count: usize) -> Vec<Vec<f64>> {
+    let mut w = vec![vec![0.0; node_count]; node_count];
+    for i in 1..=node_count {
+        for j in 1..i {
+            let val = x[edge_index(i, j)];
+            if val > EPS {
+                // convert to 0-based indexing
+                w[i - 1][j - 1] = val;
+                w[j - 1][i - 1] = val;
+            }
+        }
+    }
+    w
+}
+
 fn try_solve_initial(problem: &TsplibInstance) -> Result<(Tableau, Vec<f64>), SolverError> {
     let node_count = problem.nodes.len();
     let e = node_count * (node_count - 1) / 2;
@@ -357,6 +378,48 @@ fn try_solve_initial(problem: &TsplibInstance) -> Result<(Tableau, Vec<f64>), So
     let x = try_primal_simplex(&mut a, &mut b, &mut c, &mut basis)?;
 
     Ok(((a, b, c, basis), x))
+}
+
+pub fn try_solve_lp_relaxation(
+    problem: &TsplibInstance,
+) -> Result<LpRelaxationResult, SolverError> {
+    let node_count = problem.nodes.len();
+    let e = node_count * (node_count - 1) / 2;
+
+    // initial simplex to find a basic feasible solution which may contain subcycles
+    let ((mut a, mut b, mut c, mut basis), mut x) = try_solve_initial(problem)?;
+
+    // remove subcycles by adding subtour cuts iteratively until a solution without subcycles is found
+    loop {
+        // build weight matrix from current solution
+        let w = build_weight_matrix(&x, node_count);
+
+        // find minimum cut
+        let (cut_weight, cut_set) = min_cut(&w, node_count);
+
+        // if cut weight is at least 2, there are no subcycles left
+        if cut_weight >= 2.0 - EPS {
+            break;
+        }
+
+        // add subtour cut for the cut set
+        let s: HashSet<usize> = cut_set.iter().map(|&i| i + 1).collect(); // convert to 1-based indexing
+        let cut = cut_edges_for_set(node_count, &s);
+        add_subtour_cut(&mut a, &mut b, &mut c, &mut basis, &cut);
+        x = try_dual_simplex(&mut a, &mut b, &mut c, &mut basis)?;
+    }
+
+    let mut edges = Vec::new();
+    let mut lower_bound = 0.0;
+    for (k, &val) in x.iter().take(e).enumerate() {
+        if val > EPS {
+            let (i, j) = index_to_edge(k);
+            lower_bound += problem.try_get_distance(i, j)? as f64 * val;
+            edges.push((i, j, val));
+        }
+    }
+
+    Ok(LpRelaxationResult { lower_bound, edges })
 }
 
 // A, b, c, B are the standard inputs, according to rust style guidelines we should use snake case for variable names
@@ -454,6 +517,15 @@ fn try_dual_simplex(
     }
 
     try_primal_simplex(a, b, c, basis)
+}
+
+fn index_to_edge(k: usize) -> (usize, usize) {
+    let mut i = 2;
+    while i * (i - 1) / 2 <= k {
+        i += 1;
+    }
+    let j = k - (i - 1) * (i - 2) / 2 + 1;
+    (i, j)
 }
 
 #[cfg(test)]

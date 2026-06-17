@@ -7,13 +7,15 @@ use tsplib_core::{
 };
 
 use crate::{
-    errors::SimplexError,
+    errors::{SimplexError, SolverError},
     solver::lp_relaxation::{
-        add_subtour_cut, assert_canonical, assert_dimensions, canonicalize_cost, cut_edges_for_set,
-        edge_col, min_cut, try_build_tableau, try_dual_simplex, try_primal_simplex,
-        try_solve_initial,
+        add_subtour_cut, assert_canonical, assert_dimensions, build_weight_matrix,
+        canonicalize_cost, cut_edges_for_set, edge_col, min_cut, try_build_tableau,
+        try_dual_simplex, try_primal_simplex, try_solve_initial,
     },
 };
+
+const EPS: f64 = 1e-9;
 
 fn make_test_instance() -> TsplibInstance {
     TsplibInstance {
@@ -48,6 +50,94 @@ fn make_test_instance() -> TsplibInstance {
         ],
         distance_source: DistanceSource::Geometric(EdgeWeightType::Euc2D),
         fixed_edges: None,
+    }
+}
+
+fn make_clustered_instance() -> TsplibInstance {
+    TsplibInstance {
+        problem_id: "clustered".to_string(),
+        name: "clustered".to_string(),
+        problem_type: ProblemType::TSP,
+        nodes: vec![
+            Node {
+                id: 1,
+                x: 0.0,
+                y: 0.0,
+                z: None,
+            },
+            Node {
+                id: 2,
+                x: 1.0,
+                y: 0.0,
+                z: None,
+            },
+            Node {
+                id: 3,
+                x: 0.5,
+                y: 1.0,
+                z: None,
+            },
+            Node {
+                id: 4,
+                x: 1000.0,
+                y: 0.0,
+                z: None,
+            },
+            Node {
+                id: 5,
+                x: 1001.0,
+                y: 0.0,
+                z: None,
+            },
+            Node {
+                id: 6,
+                x: 1000.5,
+                y: 1.0,
+                z: None,
+            },
+        ],
+        distance_source: DistanceSource::Geometric(EdgeWeightType::Euc2D),
+        fixed_edges: None,
+    }
+}
+
+fn solve_lp_relaxation_counted(problem: &TsplibInstance) -> Result<(Vec<f64>, usize), SolverError> {
+    let node_count = problem.nodes.len();
+    let ((mut a, mut b, mut c, mut basis), mut x) = try_solve_initial(problem)?;
+
+    let mut rounds = 0;
+    loop {
+        let w = build_weight_matrix(&x, node_count);
+        let (cut_value, s_zero) = min_cut(&w, node_count);
+        if cut_value >= 2.0 - EPS {
+            break;
+        }
+        let s: HashSet<usize> = s_zero.iter().map(|&i| i + 1).collect();
+        let cut = cut_edges_for_set(node_count, &s);
+        add_subtour_cut(&mut a, &mut b, &mut c, &mut basis, &cut);
+        x = try_dual_simplex(&mut a, &mut b, &mut c, &mut basis)?;
+        rounds += 1;
+    }
+    Ok((x, rounds))
+}
+
+#[allow(clippy::needless_range_loop)]
+fn assert_subtour_free_and_feasible(x: &[f64], n: usize) {
+    for mask in 1u32..((1 << n) - 1) {
+        let s: HashSet<usize> = (1..=n).filter(|&i| mask & (1 << (i - 1)) != 0).collect();
+        let crossing: f64 = cut_edges_for_set(n, &s).iter().map(|&k| x[k]).sum();
+        assert!(crossing >= 2.0 - 1e-9, "Cut {s:?} verletzt: {crossing}");
+    }
+    for v in 1..=n {
+        let deg: f64 = (1..=n).filter(|&w| w != v).map(|w| x[edge_col(v, w)]).sum();
+        assert!((deg - 2.0).abs() < 1e-9, "Knoten {v}: Grad {deg}");
+    }
+    for k in 0..(n * (n - 1) / 2) {
+        assert!(
+            x[k] >= -1e-9 && x[k] <= 1.0 + 1e-9,
+            "Kante {k} außerhalb [0,1]: {}",
+            x[k]
+        );
     }
 }
 
@@ -340,4 +430,28 @@ fn test_min_cut() {
         !s.is_empty() && s.len() < 4,
         "Min cut has to be a proper subset"
     );
+}
+
+#[test]
+fn test_separation_no_subtours() {
+    let problem = make_test_instance();
+    let n = problem.nodes.len();
+
+    let (x, _rounds) = solve_lp_relaxation_counted(&problem).unwrap();
+
+    assert_subtour_free_and_feasible(&x, n);
+}
+
+#[test]
+fn test_separation_runs_at_least_once() {
+    let problem = make_clustered_instance();
+    let n = problem.nodes.len();
+
+    let (x, rounds) = solve_lp_relaxation_counted(&problem).unwrap();
+
+    assert!(
+        rounds >= 1,
+        "kein Subzyklus erkannt — Schleife lief {rounds} Runden"
+    );
+    assert_subtour_free_and_feasible(&x, n);
 }
