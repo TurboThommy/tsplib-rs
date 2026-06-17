@@ -185,6 +185,46 @@ fn canonicalize_cost(a: &[Vec<f64>], c: &mut [f64], basis: &[usize]) {
     }
 }
 
+fn try_solve_initial(problem: &TsplibInstance) -> Result<(Tableau, Vec<f64>), SolverError> {
+    let node_count = problem.nodes.len();
+    let e = node_count * (node_count - 1) / 2;
+    let n = node_count * node_count;
+    let artificial_offset = 2 * e;
+
+    // Build the initial tableau
+    let (mut a, mut b, c_real, mut basis) = try_build_tableau(problem)?;
+
+    // Canonicalize the cost vector: artificial variables should have 1, the rest should have 0
+    let mut c = vec![0.0; n];
+    for v in 0..node_count {
+        c[artificial_offset + v] = 1.0;
+    }
+    canonicalize_cost(&a, &mut c, &basis);
+
+    // Solve initial tableau using primal simplex to minimize the sum of artificial variables
+    let x1 = try_primal_simplex(&mut a, &mut b, &mut c, &mut basis)?;
+
+    // Check validity: sum of artificial variables should be 0
+    let artificial_sum = (0..node_count).map(|v| x1[artificial_offset + v]).sum();
+    if artificial_sum > EPS {
+        return Err(SolverError::LpRelaxationInfeasible(artificial_sum));
+    }
+
+    // Build the tableau for the original cost function
+    let mut c = c_real;
+    let big_m = 1.0 + c.iter().map(|v| v.abs()).sum::<f64>();
+    for v in 0..node_count {
+        c[artificial_offset + v] = big_m;
+    }
+    canonicalize_cost(&a, &mut c, &basis);
+
+    // solve the tableau with the original cost function using dual simplex
+    // note: the solution can still contain subcycles
+    let x = try_primal_simplex(&mut a, &mut b, &mut c, &mut basis)?;
+
+    Ok(((a, b, c, basis), x))
+}
+
 // A, b, c, B are the standard inputs, according to rust style guidelines we should use snake case for variable names
 // so A will be a, b will be b, c will be c and B will be basis
 //

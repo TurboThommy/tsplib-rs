@@ -7,10 +7,46 @@ use tsplib_core::{
 use crate::{
     errors::SimplexError,
     solver::lp_relaxation::{
-        assert_canonical, assert_dimensions, canonicalize_cost, try_build_tableau,
-        try_dual_simplex, try_primal_simplex,
+        assert_canonical, assert_dimensions, canonicalize_cost, edge_col, try_build_tableau,
+        try_dual_simplex, try_primal_simplex, try_solve_initial,
     },
 };
+
+fn make_test_instance() -> TsplibInstance {
+    TsplibInstance {
+        problem_id: "test".to_string(),
+        name: "test".to_string(),
+        problem_type: ProblemType::TSP,
+        nodes: vec![
+            Node {
+                id: 1,
+                x: 0.0,
+                y: 0.0,
+                z: None,
+            },
+            Node {
+                id: 2,
+                x: 1.0,
+                y: 1.0,
+                z: None,
+            },
+            Node {
+                id: 3,
+                x: 2.0,
+                y: 2.0,
+                z: None,
+            },
+            Node {
+                id: 4,
+                x: 3.0,
+                y: 3.0,
+                z: None,
+            },
+        ],
+        distance_source: DistanceSource::Geometric(EdgeWeightType::Euc2D),
+        fixed_edges: None,
+    }
+}
 
 #[test]
 fn test_primal_simplex() {
@@ -98,39 +134,7 @@ fn test_dual_simplex_infeasible() {
 
 #[test]
 fn test_build_tableau() {
-    let problem = TsplibInstance {
-        problem_id: "test".to_string(),
-        name: "test".to_string(),
-        problem_type: ProblemType::TSP,
-        nodes: vec![
-            Node {
-                id: 1,
-                x: 0.0,
-                y: 0.0,
-                z: None,
-            },
-            Node {
-                id: 2,
-                x: 1.0,
-                y: 1.0,
-                z: None,
-            },
-            Node {
-                id: 3,
-                x: 2.0,
-                y: 2.0,
-                z: None,
-            },
-            Node {
-                id: 4,
-                x: 3.0,
-                y: 3.0,
-                z: None,
-            },
-        ],
-        distance_source: DistanceSource::Geometric(EdgeWeightType::Euc2D),
-        fixed_edges: None,
-    };
+    let problem = make_test_instance();
 
     let tableau = try_build_tableau(&problem).expect("Tableau should be built successfully");
     let (a, b, c, basis) = tableau;
@@ -213,39 +217,7 @@ fn test_build_tableau() {
 #[test]
 #[allow(clippy::needless_range_loop)]
 fn test_canonicalize_phase_one() {
-    let problem = TsplibInstance {
-        problem_id: "test".to_string(),
-        name: "test".to_string(),
-        problem_type: ProblemType::TSP,
-        nodes: vec![
-            Node {
-                id: 1,
-                x: 0.0,
-                y: 0.0,
-                z: None,
-            },
-            Node {
-                id: 2,
-                x: 1.0,
-                y: 1.0,
-                z: None,
-            },
-            Node {
-                id: 3,
-                x: 2.0,
-                y: 2.0,
-                z: None,
-            },
-            Node {
-                id: 4,
-                x: 3.0,
-                y: 3.0,
-                z: None,
-            },
-        ],
-        distance_source: DistanceSource::Geometric(EdgeWeightType::Euc2D),
-        fixed_edges: None,
-    };
+    let problem = make_test_instance();
 
     let (a, _, _, basis) =
         try_build_tableau(&problem).expect("Tableau should be built successfully");
@@ -269,5 +241,44 @@ fn test_canonicalize_phase_one() {
 
     for k in 2 * e..n {
         assert!(c[k].abs() < 1e-9, "Artificial {k}");
+    }
+}
+
+#[test]
+#[allow(clippy::needless_range_loop)]
+fn test_solve_initial_lp() {
+    let problem = make_test_instance();
+    let node_count = problem.nodes.len();
+    let e = node_count * (node_count - 1) / 2;
+    let artificial_offset = 2 * e;
+
+    let (_, x) = try_solve_initial(&problem).expect("Initial LP should be solved successfully");
+
+    let artificial_sum = (0..node_count)
+        .map(|v| x[artificial_offset + v])
+        .sum::<f64>();
+    assert!(
+        artificial_sum.abs() < 1e-9,
+        "Artificial variables not eliminated: {artificial_sum}"
+    );
+
+    for k in 0..e {
+        assert!(
+            x[k] >= -1e-9 && x[k] <= 1.0 + 1e-9,
+            "Edge {k} out of bounds [0, 1]: {}",
+            x[k]
+        );
+    }
+
+    for v in 1..=node_count {
+        let degree = (1..=node_count)
+            .filter(|&w| w != v)
+            .map(|w| x[edge_col(v, w)])
+            .sum::<f64>();
+
+        assert!(
+            (degree - 2.0).abs() < 1e-9,
+            "Node {v} has degree {degree}, expected 2"
+        );
     }
 }
