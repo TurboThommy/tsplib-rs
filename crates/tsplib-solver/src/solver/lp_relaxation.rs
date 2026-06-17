@@ -4,11 +4,15 @@
 
 use std::f64;
 
-use crate::errors::SimplexError;
+use tsplib_core::models::TsplibInstance;
+
+use crate::errors::{SimplexError, SolverError};
 
 const EPS: f64 = 1e-9;
 
 pub struct LpRelaxation {}
+
+type Tableau = (Vec<Vec<f64>>, Vec<f64>, Vec<f64>, Vec<usize>);
 
 fn assert_dimensions(a: &[Vec<f64>], b: &[f64], c: &[f64]) {
     let m = b.len();
@@ -98,6 +102,75 @@ fn pivot(
     }
 
     basis[l] = s;
+}
+
+fn edge_index(i: usize, j: usize) -> usize {
+    assert!(i > j, "edge_index should only be called with i < j");
+    (i - 1) * (i - 2) / 2 + (j - 1)
+}
+
+fn edge_col(u: usize, v: usize) -> usize {
+    let (i, j) = if u > v { (u, v) } else { (v, u) };
+    edge_index(i, j)
+}
+
+fn try_build_tableau(problem: &TsplibInstance) -> Result<Tableau, SolverError> {
+    let node_count = problem.nodes.len();
+
+    // number of edges in a complete graph with node_count nodes
+    let e = node_count * (node_count - 1) / 2;
+
+    // number of constraints: node_count degree constraints + e upper-bound constraints
+    let m = node_count * (node_count + 1) / 2;
+
+    // total number of columns: e edge variables + e slack variables + node_count artificial variables
+    let n = node_count * node_count;
+
+    let slack_offset = e;
+    let artificial_offset = 2 * e;
+    let bound_row_offset = node_count;
+
+    let mut a = vec![vec![0.0; n]; m];
+    let mut b = vec![0.0; m];
+    let mut c = vec![0.0; n];
+    let mut basis = vec![0; m];
+
+    // degree constraints
+    for v in 1..=node_count {
+        for w in 1..=node_count {
+            if w == v {
+                continue;
+            }
+
+            // variable for edge (v, w)
+            a[v - 1][edge_col(v, w)] = 1.0;
+        }
+
+        // artificial variable for degree constraint
+        a[v - 1][artificial_offset + (v - 1)] = 1.0;
+        b[v - 1] = 2.0;
+        basis[v - 1] = artificial_offset + (v - 1);
+    }
+
+    // upper-bound constraints (x_ij <= 1)
+    for i in 1..=node_count {
+        for j in 1..i {
+            let k = edge_index(i, j);
+
+            // variable for edge (i, j)
+            a[bound_row_offset + k][k] = 1.0;
+            // slack variable for the edge (i, j) upper bound constraint
+            a[bound_row_offset + k][slack_offset + k] = 1.0;
+
+            b[bound_row_offset + k] = 1.0;
+            // index of slack variable in basis
+            basis[bound_row_offset + k] = slack_offset + k;
+            // cost coefficient for edge (i, j)
+            c[k] = problem.try_get_distance(i, j)? as f64;
+        }
+    }
+
+    Ok((a, b, c, basis))
 }
 
 // A, b, c, B are the standard inputs, according to rust style guidelines we should use snake case for variable names
@@ -199,9 +272,17 @@ fn try_dual_simplex(
 
 #[cfg(test)]
 mod tests {
+    use tsplib_core::{
+        enums::{DistanceSource, EdgeWeightType, ProblemType},
+        models::{Node, TsplibInstance},
+    };
+
     use crate::{
         errors::SimplexError,
-        solver::lp_relaxation::{try_dual_simplex, try_primal_simplex},
+        solver::lp_relaxation::{
+            assert_canonical, assert_dimensions, try_build_tableau, try_dual_simplex,
+            try_primal_simplex,
+        },
     };
 
     #[test]
@@ -286,5 +367,119 @@ mod tests {
             try_dual_simplex(&mut a, &mut b, &mut c, &mut basis),
             Err(SimplexError::Infeasible)
         )
+    }
+
+    #[test]
+    fn test_build_tableau() {
+        let problem = TsplibInstance {
+            problem_id: "test".to_string(),
+            name: "test".to_string(),
+            problem_type: ProblemType::TSP,
+            nodes: vec![
+                Node {
+                    id: 1,
+                    x: 0.0,
+                    y: 0.0,
+                    z: None,
+                },
+                Node {
+                    id: 2,
+                    x: 1.0,
+                    y: 1.0,
+                    z: None,
+                },
+                Node {
+                    id: 3,
+                    x: 2.0,
+                    y: 2.0,
+                    z: None,
+                },
+                Node {
+                    id: 4,
+                    x: 3.0,
+                    y: 3.0,
+                    z: None,
+                },
+            ],
+            distance_source: DistanceSource::Geometric(EdgeWeightType::Euc2D),
+            fixed_edges: None,
+        };
+
+        let tableau = try_build_tableau(&problem).expect("Tableau should be built successfully");
+        let (a, b, c, basis) = tableau;
+
+        // Check dimensions of the tableau
+        // 4 degree constraints + 6 upper-bound constraints
+        assert_eq!(a.len(), 10);
+        // 16 variables (6 edges + 4 artificial variables + 6 slack variables)
+        assert_eq!(a[0].len(), 16);
+        assert_eq!(b.len(), 10);
+        assert_eq!(c.len(), 16);
+        assert_eq!(basis.len(), 10);
+
+        // Check degree constraints
+        let mut deg_1 = vec![0.0; 16];
+        deg_1[0] = 1.0;
+        deg_1[1] = 1.0;
+        deg_1[3] = 1.0;
+        deg_1[12] = 1.0;
+
+        let mut deg_2 = vec![0.0; 16];
+        deg_2[0] = 1.0;
+        deg_2[2] = 1.0;
+        deg_2[4] = 1.0;
+        deg_2[13] = 1.0;
+
+        let mut deg_3 = vec![0.0; 16];
+        deg_3[1] = 1.0;
+        deg_3[2] = 1.0;
+        deg_3[5] = 1.0;
+        deg_3[14] = 1.0;
+
+        let mut deg_4 = vec![0.0; 16];
+        deg_4[3] = 1.0;
+        deg_4[4] = 1.0;
+        deg_4[5] = 1.0;
+        deg_4[15] = 1.0;
+
+        assert_eq!(a[0], deg_1);
+        assert_eq!(a[1], deg_2);
+        assert_eq!(a[2], deg_3);
+        assert_eq!(a[3], deg_4);
+
+        // Check upper-bound constraints
+        let mut edge_12 = vec![0.0; 16];
+        edge_12[0] = 1.0;
+        edge_12[6] = 1.0;
+
+        let mut edge_13 = vec![0.0; 16];
+        edge_13[1] = 1.0;
+        edge_13[7] = 1.0;
+
+        let mut edge_23 = vec![0.0; 16];
+        edge_23[2] = 1.0;
+        edge_23[8] = 1.0;
+
+        let mut edge_14 = vec![0.0; 16];
+        edge_14[3] = 1.0;
+        edge_14[9] = 1.0;
+
+        let mut edge_24 = vec![0.0; 16];
+        edge_24[4] = 1.0;
+        edge_24[10] = 1.0;
+
+        let mut edge_34 = vec![0.0; 16];
+        edge_34[5] = 1.0;
+        edge_34[11] = 1.0;
+
+        assert_eq!(a[4], edge_12);
+        assert_eq!(a[5], edge_13);
+        assert_eq!(a[6], edge_23);
+        assert_eq!(a[7], edge_14);
+        assert_eq!(a[8], edge_24);
+        assert_eq!(a[9], edge_34);
+
+        assert_dimensions(&a, &b, &c);
+        assert_canonical(&a, &b, &c, &basis);
     }
 }
