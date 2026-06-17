@@ -10,7 +10,8 @@ use crate::{
     errors::SimplexError,
     solver::lp_relaxation::{
         add_subtour_cut, assert_canonical, assert_dimensions, canonicalize_cost, cut_edges_for_set,
-        edge_col, try_build_tableau, try_dual_simplex, try_primal_simplex, try_solve_initial,
+        edge_col, min_cut, try_build_tableau, try_dual_simplex, try_primal_simplex,
+        try_solve_initial,
     },
 };
 
@@ -312,5 +313,31 @@ fn test_add_subtour_cut() {
     assert!(
         crossing >= 2.0 - 1e-9,
         "Subtour cut not satisfied, crossing value: {crossing}"
+    );
+}
+
+#[test]
+fn test_min_cut() {
+    let mut w = vec![vec![0.0; 4]; 4];
+    let edges = [
+        (0, 1, 2.0),
+        (0, 2, 3.0),
+        (1, 2, 1.0),
+        (1, 3, 3.0),
+        (2, 3, 2.0),
+    ];
+    for (i, j, x) in edges {
+        w[i][j] = x;
+        w[j][i] = x;
+    }
+
+    let (value, s) = min_cut(&w, 4);
+    assert!(
+        (value - 5.0).abs() < 1e-9,
+        "Min cut value should be 5.0, got {value}"
+    );
+    assert!(
+        !s.is_empty() && s.len() < 4,
+        "Min cut has to be a proper subset"
     );
 }

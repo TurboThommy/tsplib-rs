@@ -241,6 +241,84 @@ fn cut_edges_for_set(node_count: usize, s: &HashSet<usize>) -> Vec<usize> {
     cols
 }
 
+fn min_cut(weights: &[Vec<f64>], node_count: usize) -> (f64, HashSet<usize>) {
+    let mut w = weights.to_vec();
+    let mut active = (0..node_count).collect::<Vec<usize>>();
+
+    // for each supernode keep track of the original nodes that have been merged into it
+    let mut members = (0..node_count)
+        .map(|i| HashSet::from([i]))
+        .collect::<Vec<HashSet<usize>>>();
+
+    let mut best_weight = f64::INFINITY;
+    let mut best_set = HashSet::new();
+
+    // n-1 iterations of merging the most tightly connected pair
+    // search for the most tightly connected pair over all active nodes
+    while active.len() > 1 {
+        // track which nodes have been added to the growing set
+        let mut added = vec![false; node_count];
+
+        // connection strength to the growing set
+        // (sum of weights from the vertex to all vertices in the growing set)
+        let mut weight_to_a = vec![0.0; node_count];
+
+        let mut prev = usize::MAX;
+        let mut last = usize::MAX;
+        let mut last_weight = 0.0;
+
+        for _ in 0..active.len() {
+            let mut selected = usize::MAX;
+            let mut selected_weight = f64::NEG_INFINITY;
+
+            // find the most tightly connected vertex to the growing set which is still active
+            for &v in &active {
+                if !added[v] && weight_to_a[v] > selected_weight {
+                    selected_weight = weight_to_a[v];
+                    selected = v;
+                }
+            }
+
+            // selected is the most tightly connected vertex to the growing set, add it to the set
+            added[selected] = true;
+            prev = last;
+            last = selected;
+            last_weight = selected_weight;
+
+            // update connection strength for remaining vertices
+            for &u in &active {
+                if !added[u] {
+                    weight_to_a[u] += w[selected][u];
+                }
+            }
+        }
+
+        // after growing the set, last and prev are the most tightly connected pair of vertices (or supernodes)
+        let (t, s) = (last, prev);
+        if last_weight < best_weight {
+            best_weight = last_weight;
+            best_set = members[t].clone();
+        }
+
+        // merge t into s, update weights and members
+        let t_row = w[t].clone();
+        for u in 0..node_count {
+            if u != s && u != t {
+                w[s][u] += t_row[u];
+                w[u][s] += t_row[u];
+            }
+        }
+        // remove t from active set
+        let t_members = std::mem::take(&mut members[t]);
+        // merge members of t into s
+        members[s].extend(t_members);
+        // remove t from active set
+        active.retain(|&x| x != t);
+    }
+
+    (best_weight, best_set)
+}
+
 fn try_solve_initial(problem: &TsplibInstance) -> Result<(Tableau, Vec<f64>), SolverError> {
     let node_count = problem.nodes.len();
     let e = node_count * (node_count - 1) / 2;
