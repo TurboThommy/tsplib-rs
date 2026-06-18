@@ -45,10 +45,10 @@ pub enum SolverError {
     MatcherError(String),
     #[error("Error finding Eulerian circuit: {0}")]
     EulerianCircuitError(String),
-    #[error(
-        "Error during linear programming relaxation, sum of artificial variables is {0}, expected 0 for a feasible solution."
-    )]
-    LpRelaxationInfeasible(f64),
+    // #[error(
+    //     "Error during linear programming relaxation, sum of artificial variables is {0}, expected 0 for a feasible solution."
+    // )]
+    // LpRelaxationInfeasible(f64),
     #[error("Error during simplex algorithm: {0}")]
     SimplexError(String),
 }

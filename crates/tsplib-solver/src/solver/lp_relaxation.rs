@@ -2,7 +2,10 @@
 //! The LP relaxation is a linear programming formulation of the TSP that relaxes the integer constraints
 //! on the decision variables, allowing them to take on fractional values.
 
-use std::{collections::HashSet, f64};
+use std::{
+    collections::{HashMap, HashSet},
+    f64,
+};
 
 use tsplib_core::models::TsplibInstance;
 
@@ -18,7 +21,7 @@ pub struct LpRelaxationResult {
     pub edges: Vec<(usize, usize, f64)>,
 }
 
-type Tableau = (Vec<Vec<f64>>, Vec<f64>, Vec<f64>, Vec<usize>);
+type Tableau = (Vec<Vec<f64>>, Vec<f64>, Vec<f64>, Vec<usize>, Vec<usize>); // TODO: perhaps convert to struct
 
 fn assert_dimensions(a: &[Vec<f64>], b: &[f64], c: &[f64]) {
     let m = b.len();
@@ -120,7 +123,15 @@ fn edge_col(u: usize, v: usize) -> usize {
     edge_index(i, j)
 }
 
-fn try_build_tableau(problem: &TsplibInstance) -> Result<Tableau, SolverError> {
+fn edge_key(u: usize, v: usize) -> (usize, usize) {
+    let (i, j) = if u > v { (u, v) } else { (v, u) };
+    (i, j)
+}
+
+fn try_build_tableau(
+    problem: &TsplibInstance,
+    fixed_edges: &HashMap<(usize, usize), bool>,
+) -> Result<Tableau, SolverError> {
     let node_count = problem.nodes.len();
 
     // number of edges in a complete graph with node_count nodes
@@ -140,6 +151,7 @@ fn try_build_tableau(problem: &TsplibInstance) -> Result<Tableau, SolverError> {
     let mut b = vec![0.0; m];
     let mut c = vec![0.0; n];
     let mut basis = vec![0; m];
+    let mut artificial_cols: Vec<usize> = Vec::new();
 
     // degree constraints
     for v in 1..=node_count {
@@ -156,6 +168,7 @@ fn try_build_tableau(problem: &TsplibInstance) -> Result<Tableau, SolverError> {
         a[v - 1][artificial_offset + (v - 1)] = 1.0;
         b[v - 1] = 2.0;
         basis[v - 1] = artificial_offset + (v - 1);
+        artificial_cols.push(artificial_offset + (v - 1));
     }
 
     // upper-bound constraints (x_ij <= 1)
@@ -169,6 +182,7 @@ fn try_build_tableau(problem: &TsplibInstance) -> Result<Tableau, SolverError> {
             a[bound_row_offset + k][slack_offset + k] = 1.0;
 
             b[bound_row_offset + k] = 1.0;
+
             // index of slack variable in basis
             basis[bound_row_offset + k] = slack_offset + k;
             // cost coefficient for edge (i, j)
@@ -176,7 +190,36 @@ fn try_build_tableau(problem: &TsplibInstance) -> Result<Tableau, SolverError> {
         }
     }
 
-    Ok((a, b, c, basis))
+    // remove edges fixed to 0 by setting their upper bound constraints to x_ij <= 0
+    // that cancels out the x_ij variable and forces it to be 0 in any feasible solution^
+    for (&(i, j), _) in fixed_edges.iter().filter(|&(_, &fixed)| !fixed) {
+        let k = edge_col(i, j);
+        b[bound_row_offset + k] = 0.0;
+    }
+
+    // add new constraint for each edge fixed to 1
+    for (&(i, j), _) in fixed_edges.iter().filter(|&(_, &fixed)| fixed) {
+        let k = edge_col(i, j);
+        let new_col = a[0].len();
+
+        // add new column for the artificial variable
+        for row in a.iter_mut() {
+            row.push(0.0);
+        }
+        c.push(0.0);
+
+        // add new row for the constraint
+        let mut new_row = vec![0.0; new_col + 1];
+        new_row[k] = 1.0;
+        new_row[new_col] = 1.0;
+        a.push(new_row);
+        b.push(1.0);
+        basis.push(new_col);
+
+        artificial_cols.push(new_col);
+    }
+
+    Ok((a, b, c, basis, artificial_cols))
 }
 
 fn canonicalize_cost(a: &[Vec<f64>], c: &mut [f64], basis: &[usize]) {
@@ -340,19 +383,19 @@ fn build_weight_matrix(x: &[f64], node_count: usize) -> Vec<Vec<f64>> {
     w
 }
 
-fn try_solve_initial(problem: &TsplibInstance) -> Result<(Tableau, Vec<f64>), SolverError> {
-    let node_count = problem.nodes.len();
-    let e = node_count * (node_count - 1) / 2;
-    let n = node_count * node_count;
-    let artificial_offset = 2 * e;
-
+fn try_solve_initial(
+    problem: &TsplibInstance,
+    fixed_edges: &HashMap<(usize, usize), bool>,
+) -> Result<Option<(Tableau, Vec<f64>)>, SolverError> {
     // Build the initial tableau
-    let (mut a, mut b, c_real, mut basis) = try_build_tableau(problem)?;
+    let (mut a, mut b, c_real, mut basis, artificial_cols) =
+        try_build_tableau(problem, fixed_edges)?;
 
     // Canonicalize the cost vector: artificial variables should have 1, the rest should have 0
+    let n = a[0].len();
     let mut c = vec![0.0; n];
-    for v in 0..node_count {
-        c[artificial_offset + v] = 1.0;
+    for &col in &artificial_cols {
+        c[col] = 1.0;
     }
     canonicalize_cost(&a, &mut c, &basis);
 
@@ -360,34 +403,40 @@ fn try_solve_initial(problem: &TsplibInstance) -> Result<(Tableau, Vec<f64>), So
     let x1 = try_primal_simplex(&mut a, &mut b, &mut c, &mut basis)?;
 
     // Check validity: sum of artificial variables should be 0
-    let artificial_sum = (0..node_count).map(|v| x1[artificial_offset + v]).sum();
+    let artificial_sum: f64 = artificial_cols.iter().map(|&col| x1[col]).sum();
     if artificial_sum > EPS {
-        return Err(SolverError::LpRelaxationInfeasible(artificial_sum));
+        // return Err(SolverError::LpRelaxationInfeasible(artificial_sum));
+        return Ok(None);
     }
 
     // Build the tableau for the original cost function
     let mut c = c_real;
     let big_m = 1.0 + c.iter().map(|v| v.abs()).sum::<f64>();
-    for v in 0..node_count {
-        c[artificial_offset + v] = big_m;
+    for &col in &artificial_cols {
+        c[col] = big_m;
     }
     canonicalize_cost(&a, &mut c, &basis);
 
-    // solve the tableau with the original cost function using dual simplex
+    // solve the tableau with the original cost function using primal simplex
     // note: the solution can still contain subcycles
     let x = try_primal_simplex(&mut a, &mut b, &mut c, &mut basis)?;
 
-    Ok(((a, b, c, basis), x))
+    Ok(Some(((a, b, c, basis, artificial_cols), x)))
 }
 
 pub fn try_solve_lp_relaxation(
     problem: &TsplibInstance,
-) -> Result<LpRelaxationResult, SolverError> {
+    fixed_edges: &HashMap<(usize, usize), bool>,
+) -> Result<Option<LpRelaxationResult>, SolverError> {
     let node_count = problem.nodes.len();
     let e = node_count * (node_count - 1) / 2;
 
     // initial simplex to find a basic feasible solution which may contain subcycles
-    let ((mut a, mut b, mut c, mut basis), mut x) = try_solve_initial(problem)?;
+    let ((mut a, mut b, mut c, mut basis, _), mut x) =
+        match try_solve_initial(problem, fixed_edges)? {
+            Some(result) => result,
+            None => return Ok(None),
+        };
 
     // remove subcycles by adding subtour cuts iteratively until a solution without subcycles is found
     loop {
@@ -419,7 +468,7 @@ pub fn try_solve_lp_relaxation(
         }
     }
 
-    Ok(LpRelaxationResult { lower_bound, edges })
+    Ok(Some(LpRelaxationResult { lower_bound, edges }))
 }
 
 // A, b, c, B are the standard inputs, according to rust style guidelines we should use snake case for variable names

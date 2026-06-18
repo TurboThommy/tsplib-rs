@@ -444,7 +444,18 @@ fn test_lp_relaxation() {
     let tsp_instance = try_parse(problem_id, data).expect("failed to read instance");
     let problem: TsplibInstance = tsp_instance.try_into().expect("failed to convert instance");
 
-    let solution = try_solve_lp_relaxation(&problem).expect("failed to solve LP relaxation");
+    let fixed_edges = HashMap::new();
+    let solution = match try_solve_lp_relaxation(&problem, &fixed_edges)
+        .expect("failed to solve LP relaxation")
+    {
+        Some(result) => result,
+        None => {
+            tracing::warn!(
+                "LP relaxation is infeasible, likely due to the presence of fixed edges. Returning without a solution."
+            );
+            return;
+        }
+    };
 
     tracing::info!(
         lower_bound = solution.lower_bound,

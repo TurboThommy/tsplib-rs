@@ -1,4 +1,4 @@
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 
 #[cfg(test)]
 use tsplib_core::{
@@ -103,7 +103,10 @@ fn make_clustered_instance() -> TsplibInstance {
 
 fn solve_lp_relaxation_counted(problem: &TsplibInstance) -> Result<(Vec<f64>, usize), SolverError> {
     let node_count = problem.nodes.len();
-    let ((mut a, mut b, mut c, mut basis), mut x) = try_solve_initial(problem)?;
+    let fixed_edges = HashMap::new();
+    let ((mut a, mut b, mut c, mut basis, _), mut x) = try_solve_initial(problem, &fixed_edges)
+        .unwrap()
+        .expect("Initial LP should be solved successfully");
 
     let mut rounds = 0;
     loop {
@@ -228,9 +231,10 @@ fn test_dual_simplex_infeasible() {
 #[test]
 fn test_build_tableau() {
     let problem = make_test_instance();
+    let fixed_edges = HashMap::new();
 
-    let tableau = try_build_tableau(&problem).expect("Tableau should be built successfully");
-    let (a, b, c, basis) = tableau;
+    let (a, b, c, basis, _) =
+        try_build_tableau(&problem, &fixed_edges).expect("Tableau should be built successfully");
 
     // Check dimensions of the tableau
     // 4 degree constraints + 6 upper-bound constraints
@@ -311,9 +315,10 @@ fn test_build_tableau() {
 #[allow(clippy::needless_range_loop)]
 fn test_canonicalize_phase_one() {
     let problem = make_test_instance();
+    let fixed_edges = HashMap::new();
 
-    let (a, _, _, basis) =
-        try_build_tableau(&problem).expect("Tableau should be built successfully");
+    let (a, _, _, basis, _) =
+        try_build_tableau(&problem, &fixed_edges).expect("Tableau should be built successfully");
     let n = a[0].len();
     let e = 6;
 
@@ -344,8 +349,10 @@ fn test_solve_initial_lp() {
     let node_count = problem.nodes.len();
     let e = node_count * (node_count - 1) / 2;
     let artificial_offset = 2 * e;
-
-    let (_, x) = try_solve_initial(&problem).expect("Initial LP should be solved successfully");
+    let fixed_edges = HashMap::new();
+    let (_, x) = try_solve_initial(&problem, &fixed_edges)
+        .unwrap()
+        .expect("Initial LP should be solved successfully");
 
     let artificial_sum = (0..node_count)
         .map(|v| x[artificial_offset + v])
@@ -379,8 +386,10 @@ fn test_solve_initial_lp() {
 #[test]
 fn test_add_subtour_cut() {
     let problem = make_test_instance();
-    let ((mut a, mut b, mut c, mut basis), _) =
-        try_solve_initial(&problem).expect("Initial LP should be solved successfully");
+    let fixed_edges = HashMap::new();
+    let ((mut a, mut b, mut c, mut basis, _), _) = try_solve_initial(&problem, &fixed_edges)
+        .unwrap()
+        .expect("Initial LP should be solved successfully");
 
     let s: HashSet<usize> = [1, 2].into_iter().collect();
     let cut = cut_edges_for_set(4, &s);
