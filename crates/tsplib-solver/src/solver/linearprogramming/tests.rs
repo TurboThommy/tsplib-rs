@@ -1,5 +1,6 @@
 use std::collections::{HashMap, HashSet};
 
+use tsplib_core::context::ExecutionContext;
 #[cfg(test)]
 use tsplib_core::{
     enums::{DistanceSource, EdgeWeightType, ProblemType},
@@ -7,11 +8,13 @@ use tsplib_core::{
 };
 
 use crate::{
+    HeldKarp, TspSolver,
     errors::{SimplexError, SolverError},
-    solver::lp_relaxation::{
-        add_subtour_cut, assert_canonical, assert_dimensions, build_weight_matrix,
-        canonicalize_cost, cut_edges_for_set, edge_col, min_cut, try_build_tableau,
-        try_dual_simplex, try_primal_simplex, try_solve_initial,
+    solver::linearprogramming::{
+        add_subtour_cut, assert_canonical, assert_dimensions, branch_and_bound,
+        build_weight_matrix, canonicalize_cost, cut_edges_for_set, edge_col, edge_key,
+        find_fractional_edge, min_cut, reconstruct_tour, try_build_tableau, try_dual_simplex,
+        try_primal_simplex, try_solve_initial,
     },
 };
 
@@ -463,4 +466,80 @@ fn test_separation_runs_at_least_once() {
         "kein Subzyklus erkannt — Schleife lief {rounds} Runden"
     );
     assert_subtour_free_and_feasible(&x, n);
+}
+
+#[test]
+fn test_find_fractional_edge_found() {
+    let edges = vec![(2, 1, 1.0), (3, 1, 0.5), (4, 2, 1.0)];
+    assert_eq!(find_fractional_edge(&edges), Some((3, 1)));
+}
+
+#[test]
+fn test_find_fractional_edge_all_integral() {
+    let edges = vec![(2, 1, 1.0), (3, 1, 1.0), (4, 2, 1.0)];
+    assert_eq!(find_fractional_edge(&edges), None);
+}
+
+#[test]
+fn test_find_fractional_edge_boundary_values() {
+    // exakt 0 und exakt 1 sind NICHT fraktional
+    let edges = vec![(2, 1, 1.0), (3, 1, 0.0)];
+    assert_eq!(find_fractional_edge(&edges), None);
+}
+
+#[test]
+fn test_reconstruct_tour_simple_cycle() {
+    let problem = make_test_instance(); // n=4
+    // Kreis 1-2-3-4-1, Kanten ungeordnet und in beliebiger Knotenrichtung
+    let edges = vec![(3, 2), (4, 1), (2, 1), (4, 3)];
+
+    let solution = reconstruct_tour(&problem, &edges).unwrap();
+
+    // Länge stimmt, jeder Knoten genau einmal
+    assert_eq!(solution.tour.len(), 4);
+    let mut sorted = solution.tour.clone();
+    sorted.sort();
+    assert_eq!(sorted, vec![1, 2, 3, 4]);
+}
+
+#[test]
+fn test_reconstruct_tour_edges_are_connected() {
+    let problem = make_test_instance();
+    let edges = vec![(3, 2), (4, 1), (2, 1), (4, 3)];
+    let edge_set: HashSet<(usize, usize)> = edges.iter().map(|&(i, j)| edge_key(i, j)).collect();
+
+    let solution = reconstruct_tour(&problem, &edges).unwrap();
+    let n = solution.tour.len();
+
+    // jede aufeinanderfolgende Paarung (inkl. Rückkante) muss eine echte Kante sein
+    for w in 0..n {
+        let from = solution.tour[w];
+        let to = solution.tour[(w + 1) % n];
+        assert!(
+            edge_set.contains(&edge_key(from, to)),
+            "Tour nutzt Nicht-Kante {from}-{to}"
+        );
+    }
+}
+
+#[test]
+fn test_reconstruct_tour_rejects_invalid() {
+    let problem = make_test_instance();
+    // Knoten 1 hätte nur einen Nachbarn -> kein Hamiltonkreis
+    let edges = vec![(2, 1), (3, 2), (4, 3)]; // offener Pfad, kein Kreis
+    assert!(reconstruct_tour(&problem, &edges).is_err());
+}
+
+#[test]
+fn test_branch_and_bound_matches_held_karp() {
+    let problem = make_clustered_instance();
+    let fixed = HashMap::new();
+    let bb = branch_and_bound(&problem, &fixed, ExecutionContext::default())
+        .unwrap()
+        .unwrap();
+    let hk = HeldKarp::try_new(25)
+        .unwrap()
+        .try_solve(&problem, 1)
+        .unwrap();
+    assert_eq!(bb.cost, hk.cost, "B&B-Optimum weicht von Held-Karp ab");
 }

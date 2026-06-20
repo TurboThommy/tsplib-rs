@@ -11,8 +11,8 @@ use tsplib_core::{
 };
 use tsplib_parser::{parse, try_parse};
 use tsplib_solver::{
-    BlossomVMatching, PerfectMatchingAlgorithm, RecursiveMatching, TspSolver,
-    WeightedEdmondsMatching, try_solve_lp_relaxation,
+    BlossomVMatching, LinearProgram, LpOptimized, PerfectMatchingAlgorithm, RecursiveMatching,
+    TspSolver, WeightedEdmondsMatching,
 };
 
 /// The main function serves as the entry point of the program, calling the test functions for parsing TSP files.
@@ -43,7 +43,8 @@ fn main() {
         // ("test_recursive_matcher", test_recursive_matcher),
         // ("test_edmonds_matcher", test_edmonds_matcher),
         // ("test_memory_allocation", test_memory_allocation),
-        ("test_lp_relaxation", test_lp_relaxation),
+        // ("test_lp", test_lp),
+        ("test_lp_optimized", test_lp_optimized),
     ];
 
     for (name, test) in tests {
@@ -438,28 +439,35 @@ fn test_memory_allocation() {
 }
 
 #[allow(dead_code)]
-fn test_lp_relaxation() {
+fn test_lp() {
     let (problem_id, data) = read_tsp_file("./data/pr76.tsp");
 
     let tsp_instance = try_parse(problem_id, data).expect("failed to read instance");
     let problem: TsplibInstance = tsp_instance.try_into().expect("failed to convert instance");
 
-    let fixed_edges = HashMap::new();
-    let solution = match try_solve_lp_relaxation(&problem, &fixed_edges)
-        .expect("failed to solve LP relaxation")
-    {
-        Some(result) => result,
-        None => {
-            tracing::warn!(
-                "LP relaxation is infeasible, likely due to the presence of fixed edges. Returning without a solution."
-            );
-            return;
-        }
-    };
+    let solution = LinearProgram::new()
+        .try_solve(&problem, 0)
+        .expect("failed to solve LP relaxation");
 
     tracing::info!(
-        lower_bound = solution.lower_bound,
-        edges = ?solution.edges,
+        cost = solution.cost, tour = ?solution.tour,
+        "LP relaxation solution"
+    );
+}
+
+#[allow(dead_code)]
+fn test_lp_optimized() {
+    let (problem_id, data) = read_tsp_file("./data/pr76.tsp");
+
+    let tsp_instance = try_parse(problem_id, data).expect("failed to read instance");
+    let problem: TsplibInstance = tsp_instance.try_into().expect("failed to convert instance");
+
+    let solution = LpOptimized::new()
+        .try_solve(&problem, 0)
+        .expect("failed to solve LP relaxation");
+
+    tracing::info!(
+        cost = solution.cost, tour = ?solution.tour,
         "LP relaxation solution"
     );
 }

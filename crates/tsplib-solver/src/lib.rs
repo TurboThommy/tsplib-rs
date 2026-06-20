@@ -5,10 +5,7 @@ mod matcher;
 mod solver;
 
 pub use matcher::{BlossomVMatching, GreedyMatching, RecursiveMatching, WeightedEdmondsMatching};
-pub use solver::{
-    Christofides, Greedy, HeldKarp, LpRelaxation, LpRelaxationResult, SolverOptions,
-    try_solve_lp_relaxation,
-};
+pub use solver::{Christofides, Greedy, HeldKarp, LinearProgram, LpOptimized, SolverOptions};
 
 use errors::{MatcherError, SolverError};
 use std::collections::{HashMap, HashSet};

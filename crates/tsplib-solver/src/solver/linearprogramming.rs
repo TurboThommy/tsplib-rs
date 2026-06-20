@@ -7,13 +7,20 @@ use std::{
     f64,
 };
 
-use tsplib_core::models::TsplibInstance;
+use tsplib_core::{
+    context::ExecutionContext,
+    models::{TspSolution, TsplibInstance},
+};
 
-use crate::errors::{SimplexError, SolverError};
+use crate::{
+    Christofides, SolverOptions, TspSolver,
+    errors::{SimplexError, SolverError},
+};
 
 const EPS: f64 = 1e-9;
 
-pub struct LpRelaxation {}
+#[derive(Default)]
+pub struct LinearProgram {}
 
 #[derive(Debug, Clone)]
 pub struct LpRelaxationResult {
@@ -22,6 +29,49 @@ pub struct LpRelaxationResult {
 }
 
 type Tableau = (Vec<Vec<f64>>, Vec<f64>, Vec<f64>, Vec<usize>, Vec<usize>); // TODO: perhaps convert to struct
+
+impl TspSolver for LinearProgram {
+    // TODO: add ctx and pass it down to support cancellation
+    // TODO: add rotation of final tour to start at start_node
+    // TODO: add logs
+    fn try_solve_with_context(
+        &self,
+        problem: &TsplibInstance,
+        start_node: usize,
+        ctx: ExecutionContext,
+        _: SolverOptions,
+    ) -> Result<TspSolution, SolverError> {
+        let n = problem.nodes.len();
+        tracing::info!(
+            node_count = n,
+            start_node,
+            "Starting Linear Programming TSP solver"
+        );
+
+        // TODO: add checks
+
+        let fixed_edges = initial_fixed_edges(problem);
+
+        let solution = match branch_and_bound(problem, &fixed_edges, ctx)? {
+            Some(solution) => Ok(solution),
+            None => Err(SolverError::NoSolution),
+        }?;
+
+        tracing::info!(
+            tour_length = solution.tour.len(),
+            cost = solution.cost,
+            "Finished Linear Programming TSP solver"
+        );
+
+        Ok(solution)
+    }
+}
+
+impl LinearProgram {
+    pub fn new() -> Self {
+        LinearProgram {}
+    }
+}
 
 fn assert_dimensions(a: &[Vec<f64>], b: &[f64], c: &[f64]) {
     let m = b.len();
@@ -126,6 +176,16 @@ fn edge_col(u: usize, v: usize) -> usize {
 fn edge_key(u: usize, v: usize) -> (usize, usize) {
     let (i, j) = if u > v { (u, v) } else { (v, u) };
     (i, j)
+}
+
+fn initial_fixed_edges(problem: &TsplibInstance) -> HashMap<(usize, usize), bool> {
+    let mut fixed_edges = HashMap::new();
+    if let Some(edges) = &problem.fixed_edges {
+        for &(i, j) in edges.iter() {
+            fixed_edges.insert(edge_key(i, j), true);
+        }
+    }
+    fixed_edges
 }
 
 fn try_build_tableau(
@@ -427,6 +487,7 @@ fn try_solve_initial(
 pub fn try_solve_lp_relaxation(
     problem: &TsplibInstance,
     fixed_edges: &HashMap<(usize, usize), bool>,
+    ctx: ExecutionContext,
 ) -> Result<Option<LpRelaxationResult>, SolverError> {
     let node_count = problem.nodes.len();
     let e = node_count * (node_count - 1) / 2;
@@ -442,6 +503,11 @@ pub fn try_solve_lp_relaxation(
     loop {
         // build weight matrix from current solution
         let w = build_weight_matrix(&x, node_count);
+
+        if ctx.is_cancelled() {
+            tracing::debug!("LP relaxation cancelled");
+            return Err(SolverError::Cancelled);
+        }
 
         // find minimum cut
         let (cut_weight, cut_set) = min_cut(&w, node_count);
@@ -469,6 +535,154 @@ pub fn try_solve_lp_relaxation(
     }
 
     Ok(Some(LpRelaxationResult { lower_bound, edges }))
+}
+
+fn find_fractional_edge(edges: &[(usize, usize, f64)]) -> Option<(usize, usize)> {
+    edges
+        .iter()
+        .filter(|&&(_, _, val)| val > EPS && val < 1.0 - EPS)
+        .min_by(|a, b| (a.2 - 0.5).abs().total_cmp(&(b.2 - 0.5).abs()))
+        .map(|&(i, j, _)| (i, j))
+}
+
+fn reconstruct_tour(
+    problem: &TsplibInstance,
+    edges: &[(usize, usize)],
+) -> Result<TspSolution, SolverError> {
+    let node_count = problem.nodes.len();
+
+    // adjacency list: each vertex should have degree 2, so neighbors are stored in an array of length 2
+    let mut adjacency: Vec<Vec<usize>> = vec![Vec::new(); node_count + 1];
+    for &(i, j) in edges {
+        adjacency[i].push(j);
+        adjacency[j].push(i);
+    }
+
+    // check that each vertex has degree 2
+    for (v, neighbors) in adjacency.iter().enumerate().skip(1) {
+        if neighbors.len() != 2 {
+            return Err(SolverError::SimplexError(format!(
+                "Expected degree 2 for vertex {v}, got {}",
+                adjacency[v].len()
+            )));
+        }
+    }
+
+    // construct the tour by traversing the adjacency list
+    let mut tour = Vec::with_capacity(node_count);
+    let mut prev = 0; // start without previous node (0 does not exist on 1-based indexing)
+    let mut current = 1; // start at vertex 1
+
+    for _ in 0..node_count {
+        tour.push(current);
+        let next = if adjacency[current][0] != prev {
+            adjacency[current][0]
+        } else {
+            adjacency[current][1]
+        };
+
+        prev = current;
+        current = next;
+    }
+
+    let mut cost: i64 = 0;
+    for w in 0..node_count {
+        let from = tour[w];
+        let to = tour[(w + 1) % node_count];
+        cost += problem.try_get_distance(from, to)? as i64;
+    }
+
+    Ok(TspSolution { tour, cost })
+}
+
+fn tour_to_edges(tour: &[usize]) -> Vec<(usize, usize)> {
+    let mut edges: Vec<(usize, usize)> = tour.windows(2).map(|w| (w[0], w[1])).collect();
+
+    if let (Some(&first), Some(&last)) = (tour.first(), tour.last()) {
+        edges.push((last, first));
+    }
+
+    edges
+}
+
+fn branch_and_bound(
+    problem: &TsplibInstance,
+    initial_fixed: &HashMap<(usize, usize), bool>,
+    ctx: ExecutionContext,
+) -> Result<Option<TspSolution>, SolverError> {
+    tracing::debug!(
+        initial_fixed_edges = ?initial_fixed,
+        "Starting branch and bound"
+    );
+
+    // get initial solution from a heuristic to use as upper bound
+    let seed =
+        Christofides::new().try_solve_with_context(problem, 1, ctx, SolverOptions::default());
+
+    let mut best: Option<(f64, Vec<(usize, usize)>)> = match seed {
+        Ok(tour) => Some((tour.cost as f64, tour_to_edges(&tour.tour))),
+        Err(_) => None,
+    };
+
+    // let mut best: Option<(f64, Vec<(usize, usize)>)> = None;
+    let mut stack: Vec<HashMap<(usize, usize), bool>> = vec![initial_fixed.clone()];
+
+    while let Some(fixed_edges) = stack.pop() {
+        if ctx.is_cancelled() {
+            tracing::debug!("Branch and bound cancelled");
+            return Err(SolverError::Cancelled);
+        }
+
+        // solve the LP relaxation with the current fixed edges
+        let result = match try_solve_lp_relaxation(problem, &fixed_edges, ctx)? {
+            Some(result) => result,
+            None => continue,
+        };
+
+        // bound: if the lower bound is worse than the best solution found so far, skip branching on this node (prune)
+        if let Some((best_cost, _)) = &best
+            && (result.lower_bound - EPS).ceil() >= *best_cost
+        {
+            tracing::debug!(best_cost = ?best_cost, lower_bound = ?result.lower_bound, "Pruning branch with worse lower bound");
+            continue;
+        }
+
+        // find fractional edges
+        match find_fractional_edge(&result.edges) {
+            None => {
+                // no fractional edges means there might be a new best integer solution
+                let tour_edges = result
+                    .edges
+                    .iter()
+                    .map(|&(i, j, _)| (i, j))
+                    .collect::<Vec<(usize, usize)>>();
+                if best
+                    .as_ref()
+                    .is_none_or(|(best_cost, _)| result.lower_bound < *best_cost)
+                {
+                    best = Some((result.lower_bound, tour_edges));
+                }
+            }
+
+            Some((i, j)) => {
+                tracing::debug!(edge = ?(i, j), "Branching on fractional edge");
+                // branch with new fixed edge (i, j) = 1 and (i, j) = 0
+                let mut forbid = fixed_edges.clone();
+                forbid.insert(edge_key(i, j), false);
+                stack.push(forbid);
+
+                let mut force = fixed_edges.clone();
+                force.insert(edge_key(i, j), true);
+                stack.push(force);
+            }
+        }
+    }
+
+    // Reconstruct the best solution found
+    match best {
+        Some((_, edges)) => Ok(Some(reconstruct_tour(problem, &edges)?)),
+        None => Ok(None),
+    }
 }
 
 // A, b, c, B are the standard inputs, according to rust style guidelines we should use snake case for variable names
