@@ -28,7 +28,7 @@ pub struct LpRelaxationResult {
     pub edges: Vec<(usize, usize, f64)>,
 }
 
-type Tableau = (Vec<Vec<f64>>, Vec<f64>, Vec<f64>, Vec<usize>, Vec<usize>); // TODO: perhaps convert to struct
+type Tableau = (Vec<Vec<f64>>, Vec<f64>, Vec<f64>, Vec<usize>, Vec<usize>);
 
 impl TspSolver for LinearProgram {
     fn try_solve_with_context(
@@ -45,7 +45,14 @@ impl TspSolver for LinearProgram {
             "Starting Linear Programming TSP solver"
         );
 
-        // TODO: add checks
+        // check problem validity
+        self.try_check_problem_validity(problem, start_node)?;
+
+        // check for cancellation before starting the LP relaxation
+        if ctx.is_cancelled() {
+            tracing::debug!("Linear Programming TSP solver cancelled before starting");
+            return Err(SolverError::Cancelled);
+        }
 
         let fixed_edges = initial_fixed_edges(problem);
 
