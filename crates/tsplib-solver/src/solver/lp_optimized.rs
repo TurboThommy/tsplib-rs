@@ -544,12 +544,10 @@ impl Bv {
                             dir = 1.0;
                         }
                     }
-                    AT_UPPER => {
-                        if *dj > best {
-                            best = *dj;
-                            entering = j;
-                            dir = -1.0;
-                        }
+                    AT_UPPER if *dj > best => {
+                        best = *dj;
+                        entering = j;
+                        dir = -1.0;
                     }
                     _ => {}
                 }
