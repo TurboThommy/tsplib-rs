@@ -62,11 +62,41 @@ impl TspSolver for LpOptimized {
     ) -> Result<TspSolution, SolverError> {
         let fixed_edges = initial_fixed_edges(problem);
 
-        match branch_and_bound(problem, &fixed_edges, ctx)? {
+        let mut solution = match branch_and_bound(problem, &fixed_edges, ctx)? {
             Some(solution) => Ok(solution),
             None => Err(SolverError::NoSolution),
-        }
+        }?;
+
+        try_rotate_tour_to_start_node(&mut solution, _start_node)?;
+
+        Ok(solution)
     }
+}
+
+fn try_rotate_tour_to_start_node(
+    solution: &mut TspSolution,
+    start_node: usize,
+) -> Result<(), SolverError> {
+    // if the tour is closed (first and last node are the same),
+    // remove the duplicate last node before rotation
+    if solution.tour.first() == solution.tour.last() {
+        solution.tour.pop();
+    }
+
+    // find the position of the start node in the tour
+    let pos = solution
+        .tour
+        .iter()
+        .position(|&node| node == start_node)
+        .ok_or(SolverError::InvalidStartNode)?;
+
+    // rotate the tour so that it starts with the specified start node
+    solution.tour.rotate_left(pos);
+
+    // close the tour by returning to the starting node
+    solution.tour.push(start_node);
+
+    Ok(())
 }
 
 // ----------------------------------------------------------------------------
