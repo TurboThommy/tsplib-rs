@@ -43,8 +43,8 @@ fn main() {
         // ("test_recursive_matcher", test_recursive_matcher),
         // ("test_edmonds_matcher", test_edmonds_matcher),
         // ("test_memory_allocation", test_memory_allocation),
-        // ("test_lp", test_lp),
-        ("test_lp_optimized", test_lp_optimized),
+        ("test_lp", test_lp),
+        // ("test_lp_optimized", test_lp_optimized),
     ];
 
     for (name, test) in tests {
@@ -440,13 +440,13 @@ fn test_memory_allocation() {
 
 #[allow(dead_code)]
 fn test_lp() {
-    let (problem_id, data) = read_tsp_file("./data/pr76.tsp");
+    let (problem_id, data) = read_tsp_file("./data/burma14.tsp");
 
     let tsp_instance = try_parse(problem_id, data).expect("failed to read instance");
     let problem: TsplibInstance = tsp_instance.try_into().expect("failed to convert instance");
 
     let solution = LinearProgram::new()
-        .try_solve(&problem, 0)
+        .try_solve(&problem, 5)
         .expect("failed to solve LP relaxation");
 
     tracing::info!(

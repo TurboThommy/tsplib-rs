@@ -31,9 +31,6 @@ pub struct LpRelaxationResult {
 type Tableau = (Vec<Vec<f64>>, Vec<f64>, Vec<f64>, Vec<usize>, Vec<usize>); // TODO: perhaps convert to struct
 
 impl TspSolver for LinearProgram {
-    // TODO: add ctx and pass it down to support cancellation
-    // TODO: add rotation of final tour to start at start_node
-    // TODO: add logs
     fn try_solve_with_context(
         &self,
         problem: &TsplibInstance,
@@ -52,10 +49,12 @@ impl TspSolver for LinearProgram {
 
         let fixed_edges = initial_fixed_edges(problem);
 
-        let solution = match branch_and_bound(problem, &fixed_edges, ctx)? {
+        let mut solution = match branch_and_bound(problem, &fixed_edges, ctx)? {
             Some(solution) => Ok(solution),
             None => Err(SolverError::NoSolution),
         }?;
+
+        try_rotate_tour_to_start_node(&mut solution, start_node)?;
 
         tracing::info!(
             tour_length = solution.tour.len(),
@@ -789,6 +788,40 @@ fn index_to_edge(k: usize) -> (usize, usize) {
     }
     let j = k - (i - 1) * (i - 2) / 2 + 1;
     (i, j)
+}
+
+/// Rotates a TSP tour so that it starts with the specified start node.
+///
+/// # Arguments
+/// * `solution` - A mutable reference to the TSP solution.
+/// * `start_node` - The node ID that the tour should start with.
+///
+/// # Returns
+/// * `Result<(), SolverError>` - Returns `Ok(())` if the rotation was successful, or a `SolverError` if the start node is not found in the tour.
+fn try_rotate_tour_to_start_node(
+    solution: &mut TspSolution,
+    start_node: usize,
+) -> Result<(), SolverError> {
+    // if the tour is closed (first and last node are the same),
+    // remove the duplicate last node before rotation
+    if solution.tour.first() == solution.tour.last() {
+        solution.tour.pop();
+    }
+
+    // find the position of the start node in the tour
+    let pos = solution
+        .tour
+        .iter()
+        .position(|&node| node == start_node)
+        .ok_or(SolverError::InvalidStartNode)?;
+
+    // rotate the tour so that it starts with the specified start node
+    solution.tour.rotate_left(pos);
+
+    // close the tour by returning to the starting node
+    solution.tour.push(start_node);
+
+    Ok(())
 }
 
 #[cfg(test)]
