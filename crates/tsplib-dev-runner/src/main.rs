@@ -457,7 +457,7 @@ fn test_lp() {
 
 #[allow(dead_code)]
 fn test_lp_optimized() {
-    let (problem_id, data) = read_tsp_file("./data/pr76.tsp");
+    let (problem_id, data) = read_tsp_file("./data/gr666.tsp");
 
     let tsp_instance = try_parse(problem_id, data).expect("failed to read instance");
     let problem: TsplibInstance = tsp_instance.try_into().expect("failed to convert instance");
