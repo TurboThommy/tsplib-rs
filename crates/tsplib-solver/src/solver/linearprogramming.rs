@@ -633,11 +633,19 @@ fn branch_and_bound(
     // let mut best: Option<(f64, Vec<(usize, usize)>)> = None;
     let mut stack: Vec<HashMap<(usize, usize), bool>> = vec![initial_fixed.clone()];
 
+    let mut iteration_count = 1;
+
     while let Some(fixed_edges) = stack.pop() {
         if ctx.is_cancelled() {
             tracing::debug!("Branch and bound cancelled");
             return Err(SolverError::Cancelled);
         }
+
+        tracing::debug!(
+            iteration_count = iteration_count,
+            "Branch & Bound iteration"
+        );
+        iteration_count += 1;
 
         // solve the LP relaxation with the current fixed edges
         let result = match try_solve_lp_relaxation(problem, &fixed_edges, ctx)? {
