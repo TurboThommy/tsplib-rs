@@ -1,11 +1,11 @@
 //! Response models used in the REST API endpoints.
-use std::sync::Arc;
+use std::{sync::Arc, time::Duration};
 
 use serde::Serialize;
 use tsplib_core::{
     context::ExecutionContext,
     enums::{DistanceSource, EdgeWeightType, ProblemType},
-    models::{Node, TsplibInstance},
+    models::{Node, TspSolution, TsplibInstance},
 };
 use tsplib_parser::SpecificationPart;
 
@@ -222,4 +222,21 @@ pub(crate) struct EdgeCostResponse {
     pub from: usize,
     pub to: usize,
     pub weight: i32,
+}
+
+#[derive(Serialize)]
+pub(crate) struct StartSolverResponse {
+    pub tour: Vec<usize>,
+    pub cost: i64,
+    pub elpased_time_ms: u128,
+}
+
+impl StartSolverResponse {
+    pub fn from_solution(solution: &TspSolution, elapsed_time_duration: Duration) -> Self {
+        Self {
+            tour: solution.tour.clone(),
+            cost: solution.cost,
+            elpased_time_ms: elapsed_time_duration.as_millis(),
+        }
+    }
 }
