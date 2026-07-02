@@ -792,7 +792,7 @@ fn branch_and_bound(
             return Err(SolverError::Cancelled);
         }
 
-        tracing::debug!(
+        tracing::trace!(
             iteration_count = iteration_count,
             "Branch & Bound iteration"
         );
