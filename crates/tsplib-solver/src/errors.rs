@@ -45,6 +45,12 @@ pub enum SolverError {
     MatcherError(String),
     #[error("Error finding Eulerian circuit: {0}")]
     EulerianCircuitError(String),
+    // #[error(
+    //     "Error during linear programming relaxation, sum of artificial variables is {0}, expected 0 for a feasible solution."
+    // )]
+    // LpRelaxationInfeasible(f64),
+    #[error("Error during simplex algorithm: {0}")]
+    SimplexError(String),
 }
 
 /// Errors that can occur during the perfect matching step of the Christofides algorithm.
@@ -107,6 +113,14 @@ pub enum MatcherError {
     BlossomExpansionNotImplemented,
 }
 
+#[derive(Error, Debug, PartialEq)]
+pub enum SimplexError {
+    #[error("The linear program is unbounded.")]
+    Unbounded,
+    #[error("The linear program is infeasible.")]
+    Infeasible,
+}
+
 impl From<InstanceError> for SolverError {
     fn from(value: InstanceError) -> Self {
         SolverError::DistanceRetrievalError(value.to_string())
@@ -134,6 +148,12 @@ impl From<GraphError> for SolverError {
                 SolverError::EulerianCircuitError(value.to_string())
             }
         }
+    }
+}
+
+impl From<SimplexError> for SolverError {
+    fn from(value: SimplexError) -> Self {
+        SolverError::SimplexError(value.to_string())
     }
 }
 

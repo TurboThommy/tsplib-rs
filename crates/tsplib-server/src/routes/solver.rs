@@ -9,7 +9,8 @@ use tokio_util::sync::CancellationToken;
 use tsplib_core::{context::ExecutionContext, models::TspSolution, reader::try_read_tsp_file};
 use tsplib_parser::try_parse;
 use tsplib_solver::{
-    Christofides, Greedy, HeldKarp, SolverOptions, TspSolver, enums::SolverAlgorithm,
+    Christofides, Greedy, HeldKarp, LinearProgram, LpOptimized, SolverOptions, TspSolver,
+    enums::SolverAlgorithm::{self},
 };
 
 use crate::{
@@ -73,6 +74,8 @@ fn run_solver(
         SolverAlgorithm::Greedy => Box::new(Greedy::new()),
         SolverAlgorithm::HeldKarp => Box::new(HeldKarp::try_new(25)?),
         SolverAlgorithm::Christofides => Box::new(Christofides::new()),
+        SolverAlgorithm::LinearProgramming => Box::new(LinearProgram::new()),
+        SolverAlgorithm::LpOptimized => Box::new(LpOptimized::new()),
     };
     tracing::debug!(solver_algorithm = ?algorithm, "Initialized solver instance, trying to solve problem");
 

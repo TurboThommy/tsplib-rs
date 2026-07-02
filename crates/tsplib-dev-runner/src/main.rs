@@ -11,8 +11,8 @@ use tsplib_core::{
 };
 use tsplib_parser::{parse, try_parse};
 use tsplib_solver::{
-    BlossomVMatching, PerfectMatchingAlgorithm, RecursiveMatching, TspSolver,
-    WeightedEdmondsMatching,
+    BlossomVMatching, LinearProgram, LpOptimized, PerfectMatchingAlgorithm, RecursiveMatching,
+    TspSolver, WeightedEdmondsMatching,
 };
 
 /// The main function serves as the entry point of the program, calling the test functions for parsing TSP files.
@@ -42,7 +42,9 @@ fn main() {
         // ("test_boruvka", test_boruvka),
         // ("test_recursive_matcher", test_recursive_matcher),
         // ("test_edmonds_matcher", test_edmonds_matcher),
-        ("test_memory_allocation", test_memory_allocation),
+        // ("test_memory_allocation", test_memory_allocation),
+        ("test_lp", test_lp),
+        // ("test_lp_optimized", test_lp_optimized),
     ];
 
     for (name, test) in tests {
@@ -433,5 +435,39 @@ fn test_memory_allocation() {
     tracing::info!(
         biggest_explicit_instance_size_mb = biggest_explicit_instance_size / (1024 * 1024),
         "Estimated memory allocation for the largest instance with explicit distance matrix"
+    );
+}
+
+#[allow(dead_code)]
+fn test_lp() {
+    let (problem_id, data) = read_tsp_file("./data/burma14.tsp");
+
+    let tsp_instance = try_parse(problem_id, data).expect("failed to read instance");
+    let problem: TsplibInstance = tsp_instance.try_into().expect("failed to convert instance");
+
+    let solution = LinearProgram::new()
+        .try_solve(&problem, 5)
+        .expect("failed to solve LP relaxation");
+
+    tracing::info!(
+        cost = solution.cost, tour = ?solution.tour,
+        "LP relaxation solution"
+    );
+}
+
+#[allow(dead_code)]
+fn test_lp_optimized() {
+    let (problem_id, data) = read_tsp_file("./data/gr666.tsp");
+
+    let tsp_instance = try_parse(problem_id, data).expect("failed to read instance");
+    let problem: TsplibInstance = tsp_instance.try_into().expect("failed to convert instance");
+
+    let solution = LpOptimized::new()
+        .try_solve(&problem, 0)
+        .expect("failed to solve LP relaxation");
+
+    tracing::info!(
+        cost = solution.cost, tour = ?solution.tour,
+        "LP relaxation solution"
     );
 }
