@@ -1,3 +1,6 @@
+//! Large parts of this file have been written with massive AI assistance.
+//! For this the Claude Opus 4.8 model with effort set to "high" has been used.
+//!
 //! This module implements the Edmonds' Blossom algorithm for finding a minimum weight perfect matching
 //! over the complete graph induced by a given set of vertices (the odd-degree MST vertices in Christofides).
 use std::{

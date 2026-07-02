@@ -1,3 +1,6 @@
+//! The implementation this module contains is completely written by AI.
+//! The Claude Opus 4.8 model with effort set to "high" was used to generate the code in this file.
+//!
 //! LP relaxation of the TSP, optimized variant (`LpOptimized`).
 //!
 //! Same branch-and-bound / cutting-plane structure as `LinearProgram`, but the

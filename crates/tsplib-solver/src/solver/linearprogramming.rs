@@ -79,6 +79,12 @@ impl LinearProgram {
     }
 }
 
+/// Asserts that the dimensions of the input matrices and vectors are consistent for the linear programming problem.
+///
+/// # Arguments
+/// * `a` - A reference to a 2D vector representing the constraint coefficients matrix.
+/// * `b` - A reference to a vector representing the right-hand side constants of the constraints.
+/// * `c` - A reference to a vector representing the coefficients of the objective function.
 fn assert_dimensions(a: &[Vec<f64>], b: &[f64], c: &[f64]) {
     let m = b.len();
     let n = c.len();
@@ -90,6 +96,13 @@ fn assert_dimensions(a: &[Vec<f64>], b: &[f64], c: &[f64]) {
     );
 }
 
+/// Asserts that the current tableau is in canonical form with respect to the given basis.
+///
+/// # Arguments
+/// * `a` - A reference to a 2D vector representing the constraint coefficients matrix.
+/// * `b` - A reference to a vector representing the right-hand side constants of the constraints.
+/// * `c` - A reference to a vector representing the coefficients of the objective function.
+/// * `basis` - A reference to a vector containing the indices of the basic variables.
 fn assert_canonical(a: &[Vec<f64>], b: &[f64], c: &[f64], basis: &[usize]) {
     let m = b.len();
     let n = c.len();
@@ -103,6 +116,8 @@ fn assert_canonical(a: &[Vec<f64>], b: &[f64], c: &[f64], basis: &[usize]) {
         basis.iter().all(|&col| col < n),
         "Basis indices should be valid column indices"
     );
+
+    // Check for duplicate indices in the basis
     {
         let mut seen = basis.to_vec();
         seen.sort_unstable();
@@ -110,6 +125,7 @@ fn assert_canonical(a: &[Vec<f64>], b: &[f64], c: &[f64], basis: &[usize]) {
         assert_eq!(seen.len(), m, "Basis should not contain duplicate indices");
     }
 
+    // Check that the basis columns form an identity matrix in A and that the corresponding cost coefficients in C are zero
     for (i, &col) in basis.iter().enumerate() {
         for (row, a_row) in a.iter().enumerate() {
             let expected = if row == i { 1.0 } else { 0.0 };
@@ -127,6 +143,15 @@ fn assert_canonical(a: &[Vec<f64>], b: &[f64], c: &[f64], basis: &[usize]) {
     }
 }
 
+/// Performs a pivot operation on the tableau to update the basis and maintain feasibility.
+///
+/// # Arguments
+/// * `a` - A mutable reference to a 2D vector representing the constraint coefficients matrix.
+/// * `b` - A mutable reference to a vector representing the right-hand side constants of the constraints.
+/// * `c` - A mutable reference to a vector representing the coefficients of the objective function.
+/// * `basis` - A mutable reference to a vector containing the indices of the basic variables.
+/// * `z` - The index of the leaving variable (row index).
+/// * `s` - The index of the entering variable (column index).
 fn pivot(
     a: &mut [Vec<f64>],
     b: &mut [f64],
@@ -144,9 +169,11 @@ fn pivot(
         .position(|&col| (a[z][col] - 1.0).abs() < EPS)
         .unwrap();
 
+    // Normalize the pivot row
     a[z] = a[z].iter().map(|&x| x / a_zs).collect();
     b[z] /= a_zs;
 
+    // Update the other rows to eliminate the entering variable
     for j in 0..m {
         if j != z {
             let a_js = a[j][s];
@@ -161,29 +188,42 @@ fn pivot(
         }
     }
 
+    // Update the cost vector to reflect the new basis
     let c_s = c[s];
     for i in 0..n {
         c[i] -= c_s * a[z][i];
     }
 
+    // Update the basis to reflect the new entering variable
     basis[l] = s;
 }
 
+/// Helper function to compute the index of the edge (i, j) in a 1D array representation of the upper triangular part of an adjacency matrix.
 fn edge_index(i: usize, j: usize) -> usize {
     assert!(i > j, "edge_index should only be called with i < j");
     (i - 1) * (i - 2) / 2 + (j - 1)
 }
 
+/// Helper function to compute the column index for the edge (u, v) in the tableau, ensuring that u > v for consistent indexing.
 fn edge_col(u: usize, v: usize) -> usize {
     let (i, j) = if u > v { (u, v) } else { (v, u) };
     edge_index(i, j)
 }
 
+/// Helper function to compute the key for the edge (u, v) in the tableau, ensuring that u > v for consistent indexing.
 fn edge_key(u: usize, v: usize) -> (usize, usize) {
     let (i, j) = if u > v { (u, v) } else { (v, u) };
     (i, j)
 }
 
+/// Initializes a HashMap of fixed edges from the given TSP problem instance.
+/// The keys are tuples representing the edges (i, j), and the values are booleans indicating whether the edge is fixed to 1 (true) or 0 (false).
+///
+/// # Arguments
+/// * `problem` - A reference to the TSP problem instance containing the fixed edges information.
+///
+/// # Returns
+/// * `HashMap<(usize, usize), bool>` - A HashMap where the keys are edges (i, j) and the values indicate whether the edge is fixed to 1 (true) or 0 (false).
 fn initial_fixed_edges(problem: &TsplibInstance) -> HashMap<(usize, usize), bool> {
     let mut fixed_edges = HashMap::new();
     if let Some(edges) = &problem.fixed_edges {
@@ -194,6 +234,15 @@ fn initial_fixed_edges(problem: &TsplibInstance) -> HashMap<(usize, usize), bool
     fixed_edges
 }
 
+/// Builds the initial tableau for the LP relaxation of the TSP problem, incorporating any fixed edges specified in the input.
+///
+/// # Arguments
+/// * `problem` - A reference to the TSP problem instance containing the nodes and distances.
+/// * `fixed_edges` - A reference to a HashMap containing edges that are fixed to either 1 (true) or 0 (false).
+///
+/// # Returns
+/// * `Result<Tableau, SolverError>` - Returns a Result containing the constructed tableau (A, b, c, basis, artificial_cols) if successful,
+///   or a SolverError if there was an issue with the problem instance or fixed edges.
 fn try_build_tableau(
     problem: &TsplibInstance,
     fixed_edges: &HashMap<(usize, usize), bool>,
@@ -288,6 +337,12 @@ fn try_build_tableau(
     Ok((a, b, c, basis, artificial_cols))
 }
 
+/// Canonicalizes the cost vector `c` with respect to the current basis, ensuring that the cost coefficients of the basic variables are zero.
+///
+/// # Arguments
+/// * `a` - A reference to the constraint coefficients matrix.
+/// * `c` - A mutable reference to the cost vector to be canonicalized.
+/// * `basis` - A reference to the vector containing the indices of the basic variables.
 fn canonicalize_cost(a: &[Vec<f64>], c: &mut [f64], basis: &[usize]) {
     let n = c.len();
     for (i, &col) in basis.iter().enumerate() {
@@ -300,6 +355,14 @@ fn canonicalize_cost(a: &[Vec<f64>], c: &mut [f64], basis: &[usize]) {
     }
 }
 
+/// Adds a subtour cut to the linear programming tableau to eliminate subcycles in the current solution.
+///
+/// # Arguments
+/// * `a` - A mutable reference to the constraint coefficients matrix.
+/// * `b` - A mutable reference to the right-hand side constants vector.
+/// * `c` - A mutable reference to the cost vector.
+/// * `basis` - A mutable reference to the vector containing the indices of the basic variables.
+/// * `cut_edges` - A slice containing the indices of the edges that form the subtour cut.
 fn add_subtour_cut(
     a: &mut Vec<Vec<f64>>,
     b: &mut Vec<f64>,
@@ -344,10 +407,19 @@ fn add_subtour_cut(
     basis.push(n);
 }
 
+/// Computes the indices of the edges that cross the cut defined by the set `s` in a graph with `node_count` nodes.
+///
+/// # Arguments
+/// * `node_count` - The number of nodes in the graph.
+/// * `s` - A reference to the set of nodes that define the cut.
+///
+/// # Returns
+/// * `Vec<usize>` - A vector containing the indices of the edges that cross the cut.
 fn cut_edges_for_set(node_count: usize, s: &HashSet<usize>) -> Vec<usize> {
     let mut cols = Vec::new();
     for i in 1..=node_count {
         for j in 1..i {
+            // if one of the nodes is in the set and the other is not, then the edge (i, j) crosses the cut
             if s.contains(&i) ^ s.contains(&j) {
                 cols.push(edge_index(i, j));
             }
@@ -356,6 +428,14 @@ fn cut_edges_for_set(node_count: usize, s: &HashSet<usize>) -> Vec<usize> {
     cols
 }
 
+/// Computes the minimum cut of a weighted undirected graph represented by an adjacency matrix.
+///
+/// # Arguments
+/// * `weights` - A reference to a 2D vector representing the weights of the edges in the graph. `weights[i][j]` is the weight of the edge between nodes `i` and `j`.
+/// * `node_count` - The number of nodes in the graph.
+///
+/// # Returns
+/// * `(f64, HashSet<usize>)` - A tuple containing the weight of the minimum cut and a set of nodes that are on one side of the cut.
 fn min_cut(weights: &[Vec<f64>], node_count: usize) -> (f64, HashSet<usize>) {
     let mut w = weights.to_vec();
     let mut active = (0..node_count).collect::<Vec<usize>>();
@@ -434,6 +514,14 @@ fn min_cut(weights: &[Vec<f64>], node_count: usize) -> (f64, HashSet<usize>) {
     (best_weight, best_set)
 }
 
+/// Builds a weight matrix from the solution vector `x`, where `x` contains the values of the decision variables corresponding to the edges in the TSP.
+///
+/// # Arguments
+/// * `x` - A slice containing the values of the decision variables corresponding to the edges in the TSP.
+/// * `node_count` - The number of nodes in the TSP instance.
+///
+/// # Returns
+/// * `Vec<Vec<f64>>` - A 2D vector representing the weights of the edges in the graph.
 fn build_weight_matrix(x: &[f64], node_count: usize) -> Vec<Vec<f64>> {
     let mut w = vec![vec![0.0; node_count]; node_count];
     for i in 1..=node_count {
@@ -449,6 +537,15 @@ fn build_weight_matrix(x: &[f64], node_count: usize) -> Vec<Vec<f64>> {
     w
 }
 
+/// Attempts to solve the initial linear programming tableau for the TSP problem, incorporating any fixed edges specified in the input.
+/// This includes adding artificial variables for the degree constraints and solving the tableau using the primal simplex method to drive the artificial variables to zero.
+///
+/// # Arguments
+/// * `problem` - A reference to the TSP problem instance containing the nodes and distances.
+/// * `fixed_edges` - A reference to a HashMap containing edges that are fixed to either 1 (true) or 0 (false).
+///
+/// # Returns
+/// * `Result<Option<(Tableau, Vec<f64>)>, SolverError>` - The result of the operation.
 fn try_solve_initial(
     problem: &TsplibInstance,
     fixed_edges: &HashMap<(usize, usize), bool>,
@@ -471,7 +568,6 @@ fn try_solve_initial(
     // Check validity: sum of artificial variables should be 0
     let artificial_sum: f64 = artificial_cols.iter().map(|&col| x1[col]).sum();
     if artificial_sum > EPS {
-        // return Err(SolverError::LpRelaxationInfeasible(artificial_sum));
         return Ok(None);
     }
 
@@ -490,6 +586,17 @@ fn try_solve_initial(
     Ok(Some(((a, b, c, basis, artificial_cols), x)))
 }
 
+/// Attempts to solve the LP relaxation of the TSP problem, incorporating any fixed edges specified in the input.
+/// This includes iteratively adding subtour cuts to eliminate subcycles in the solution until a feasible solution without subcycles is found.
+///
+/// # Arguments
+/// * `problem` - A reference to the TSP problem instance containing the nodes and distances.
+/// * `fixed_edges` - A reference to a HashMap containing edges that are fixed to either 1 (true) or 0 (false).
+/// * `ctx` - An execution context that can be used to check for cancellation of the operation.
+///
+/// # Returns
+/// * `Result<Option<LpRelaxationResult>, SolverError>` - The result of the operation, containing the lower bound and edges of the solution if successful,
+///   or a SolverError if there was an issue with the problem instance or fixed edges.
 pub fn try_solve_lp_relaxation(
     problem: &TsplibInstance,
     fixed_edges: &HashMap<(usize, usize), bool>,
@@ -532,6 +639,7 @@ pub fn try_solve_lp_relaxation(
 
     let mut edges = Vec::new();
     let mut lower_bound = 0.0;
+    // compute the lower bound and collect edges with non-zero values in the solution
     for (k, &val) in x.iter().take(e).enumerate() {
         if val > EPS {
             let (i, j) = index_to_edge(k);
@@ -543,6 +651,14 @@ pub fn try_solve_lp_relaxation(
     Ok(Some(LpRelaxationResult { lower_bound, edges }))
 }
 
+/// Finds a fractional edge in the solution vector `edges`, which contains tuples of the form (i, j, value).
+/// A fractional edge is defined as an edge whose value is strictly between 0 and 1 (i.e., 0 < value < 1).
+///
+/// # Arguments
+/// * `edges` - A slice of tuples representing the edges and their corresponding values in the solution vector.
+///
+/// # Returns
+/// * `Option<(usize, usize)>` - Returns Some((i, j)) if a fractional edge is found, where (i, j) are the indices of the edge. Returns None if no fractional edge is found.
 fn find_fractional_edge(edges: &[(usize, usize, f64)]) -> Option<(usize, usize)> {
     edges
         .iter()
@@ -551,6 +667,16 @@ fn find_fractional_edge(edges: &[(usize, usize, f64)]) -> Option<(usize, usize)>
         .map(|&(i, j, _)| (i, j))
 }
 
+/// Reconstructs a TSP tour from the given edges, ensuring that each vertex has degree 2 and forming a valid tour.
+/// The function traverses the adjacency list formed by the edges to create a tour and calculates its cost based on the distances in the TSP problem instance.
+///
+/// # Arguments
+/// * `problem` - A reference to the TSP problem instance containing the nodes and distances.
+/// * `edges` - A slice of tuples representing the edges in the tour, where each tuple is of the form (i, j) indicating an edge between vertices i and j.
+///
+/// # Returns
+/// * `Result<TspSolution, SolverError>` - Returns a TspSolution containing the reconstructed tour and its cost if successful,
+///   or a SolverError if the edges do not form a valid tour (e.g., if any vertex does not have degree 2).
 fn reconstruct_tour(
     problem: &TsplibInstance,
     edges: &[(usize, usize)],
@@ -579,6 +705,7 @@ fn reconstruct_tour(
     let mut prev = 0; // start without previous node (0 does not exist on 1-based indexing)
     let mut current = 1; // start at vertex 1
 
+    // traverse the tour until all nodes have been visited
     for _ in 0..node_count {
         tour.push(current);
         let next = if adjacency[current][0] != prev {
@@ -592,6 +719,7 @@ fn reconstruct_tour(
     }
 
     let mut cost: i64 = 0;
+    // compute the total cost of the tour by summing the distances between consecutive nodes
     for w in 0..node_count {
         let from = tour[w];
         let to = tour[(w + 1) % node_count];
@@ -601,6 +729,17 @@ fn reconstruct_tour(
     Ok(TspSolution { tour, cost })
 }
 
+/// Converts a tour represented as a sequence of vertex indices into a vector of edges.
+/// The function takes a slice of vertex indices representing the tour and returns a vector of tuples,
+/// where each tuple represents an edge between two consecutive vertices in the tour.
+/// The last vertex is connected back to the first vertex to complete the tour.
+///
+/// # Arguments
+/// * `tour` - A slice of usize representing the sequence of vertex indices in the tour.
+///
+/// # Returns
+/// * `Vec<(usize, usize)>` - A vector of tuples representing the edges in the tour,
+///   where each tuple is of the form (i, j) indicating an edge between vertices i and j.
 fn tour_to_edges(tour: &[usize]) -> Vec<(usize, usize)> {
     let mut edges: Vec<(usize, usize)> = tour.windows(2).map(|w| (w[0], w[1])).collect();
 
@@ -611,6 +750,18 @@ fn tour_to_edges(tour: &[usize]) -> Vec<(usize, usize)> {
     edges
 }
 
+/// Performs the branch-and-bound algorithm to solve the Traveling Salesman Problem (TSP) using linear programming relaxation and subtour elimination.
+/// The algorithm explores the solution space by branching on fractional edges and bounding using the lower bound obtained from the LP relaxation.
+/// The best integer solution found during the search is returned as the final result.
+///
+/// # Arguments
+/// * `problem` - A reference to the TSP problem instance containing the nodes and distances.
+/// * `initial_fixed` - A reference to a HashMap containing edges that are initially fixed to either 1 (true) or 0 (false).
+/// * `ctx` - An execution context that can be used to check for cancellation of the operation.
+///
+/// # Returns
+/// * `Result<Option<TspSolution>, SolverError>` - The result of the operation, containing the best TSP solution found if successful,
+///   or a SolverError if there was an issue with the problem instance or if the operation was cancelled.
 fn branch_and_bound(
     problem: &TsplibInstance,
     initial_fixed: &HashMap<(usize, usize), bool>,
@@ -657,14 +808,14 @@ fn branch_and_bound(
         if let Some((best_cost, _)) = &best
             && (result.lower_bound - EPS).ceil() >= *best_cost
         {
-            tracing::debug!(best_cost = ?best_cost, lower_bound = ?result.lower_bound, "Pruning branch with worse lower bound");
+            tracing::trace!(best_cost = ?best_cost, lower_bound = ?result.lower_bound, "Pruning branch with worse lower bound");
             continue;
         }
 
         // find fractional edges
         match find_fractional_edge(&result.edges) {
+            // no fractional edges means there might be a new best integer solution
             None => {
-                // no fractional edges means there might be a new best integer solution
                 let tour_edges = result
                     .edges
                     .iter()
@@ -678,9 +829,9 @@ fn branch_and_bound(
                 }
             }
 
+            // branch on the fractional edge (i, j) by creating two new subproblems
             Some((i, j)) => {
-                tracing::debug!(edge = ?(i, j), "Branching on fractional edge");
-                // branch with new fixed edge (i, j) = 1 and (i, j) = 0
+                tracing::trace!(edge = ?(i, j), "Branching on fractional edge");
                 let mut forbid = fixed_edges.clone();
                 forbid.insert(edge_key(i, j), false);
                 stack.push(forbid);
@@ -699,13 +850,17 @@ fn branch_and_bound(
     }
 }
 
-// A, b, c, B are the standard inputs, according to rust style guidelines we should use snake case for variable names
-// so A will be a, b will be b, c will be c and B will be basis
-//
-// a -> m x n; matrix of coefficients for the constraints
-// b -> m; vector of constants for the constraints
-// c -> n; vector of coefficients for the objective function
-// basis -> m; vector of indices of the basic variables (initially, this should be the indices of the slack variables)
+/// Attempts to solve the linear programming problem using the primal simplex method.
+/// The function iteratively improves the solution until an optimal solution is found or the problem is determined to be unbounded.
+///
+/// # Arguments
+/// * `a` - A mutable reference to the constraint coefficients matrix (m x n).
+/// * `b` - A mutable reference to the right-hand side constants vector (m).
+/// * `c` - A mutable reference to the cost vector (n).
+/// * `basis` - A mutable reference to the vector (m) containing the indices of the basic variables.
+///
+/// # Returns
+/// * `Result<Vec<f64>, SimplexError>` - Returns a Result containing the optimal solution vector if successful, or a SimplexError if the problem is unbounded or infeasible.
 fn try_primal_simplex(
     a: &mut [Vec<f64>],
     b: &mut [f64],
@@ -726,6 +881,7 @@ fn try_primal_simplex(
 
     // Main loop of the primal simplex algorithm
     while c.iter().any(|&x| x < -EPS) {
+        // Find the entering variable (most negative coefficient in c)
         let s = c
             .iter()
             .enumerate()
@@ -733,6 +889,7 @@ fn try_primal_simplex(
             .map(|(i, _)| i)
             .unwrap();
 
+        // Find the leaving variable
         let z = (0..m)
             .filter_map(|j| {
                 let a_js = a[j][s];
@@ -741,15 +898,18 @@ fn try_primal_simplex(
             .min_by(|(_, a), (_, b)| a.total_cmp(b))
             .map(|(j, _)| j);
 
+        // If no leaving variable is found, the problem is unbounded
         let z = match z {
             Some(j) => j,
             None => return Err(SimplexError::Unbounded),
         };
 
+        // Perform the pivot operation to update the tableau
         pivot(a, b, c, basis, z, s);
     }
 
     let mut x = vec![0.0; n];
+    // Construct the solution vector from the basic variables
     for &i in basis.iter() {
         if let Some(j) = (0..m).find(|&j| (a[j][i] - 1.0).abs() < EPS) {
             x[i] = b[j];
@@ -758,6 +918,17 @@ fn try_primal_simplex(
     Ok(x)
 }
 
+/// Attempts to solve the linear programming problem using the dual simplex method.
+/// The function iteratively improves the solution until an optimal solution is found or the problem is determined to be infeasible.
+///
+/// # Arguments
+/// * `a` - A mutable reference to the constraint coefficients matrix (m x n).
+/// * `b` - A mutable reference to the right-hand side constants vector (m).
+/// * `c` - A mutable reference to the cost vector (n).
+/// * `basis` - A mutable reference to the vector (m) containing the indices of the basic variables.
+///
+/// # Returns
+/// * `Result<Vec<f64>, SimplexError>` - Returns a Result containing the optimal solution vector if successful, or a SimplexError if the problem is infeasible.
 fn try_dual_simplex(
     a: &mut [Vec<f64>],
     b: &mut [f64],
@@ -769,7 +940,9 @@ fn try_dual_simplex(
     assert_dimensions(a, b, c);
     assert_canonical(a, b, c, basis);
 
+    // Main loop of the dual simplex algorithm
     while b.iter().any(|&x| x < -EPS) {
+        // Find the leaving variable (most negative value in b)
         let z = b
             .iter()
             .enumerate()
@@ -777,6 +950,7 @@ fn try_dual_simplex(
             .map(|(i, _)| i)
             .unwrap();
 
+        // Find the entering variable
         let s = (0..n)
             .filter_map(|i| {
                 let a_zj = a[z][i];
@@ -785,17 +959,28 @@ fn try_dual_simplex(
             .max_by(|(_, a), (_, b)| a.total_cmp(b))
             .map(|(i, _)| i);
 
+        // If no entering variable is found, the problem is infeasible
         let s = match s {
             Some(i) => i,
             None => return Err(SimplexError::Infeasible),
         };
 
+        // Perform the pivot operation to update the tableau
         pivot(a, b, c, basis, z, s);
     }
 
+    // primal simplex is used to find the optimal solution after dual feasibility is restored
     try_primal_simplex(a, b, c, basis)
 }
 
+/// Converts an edge index `k` into its corresponding edge (i, j) in a complete graph with `n` nodes.
+/// The edges are indexed in a specific order, and this function computes the corresponding vertex indices for the given edge index.
+///
+/// # Arguments
+/// * `k` - The index of the edge in the complete graph.
+///
+/// # Returns
+/// * `(usize, usize)` - A tuple containing the vertex indices (i, j) corresponding to the edge index `k`.
 fn index_to_edge(k: usize) -> (usize, usize) {
     let mut i = 2;
     while i * (i - 1) / 2 <= k {
