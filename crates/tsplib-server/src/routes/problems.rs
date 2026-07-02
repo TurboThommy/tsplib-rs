@@ -1,66 +1,73 @@
 //! Handlers for the REST API routes related to problem instances.
+
+use std::{fs::OpenOptions, io::Write, sync::Arc};
+
 use crate::{
     errors::ServerError,
-    models::responses::ProblemDescriptionResponse,
-    state::{AppState, ProcessingState},
+    models::{
+        requests::{CreateInstanceRequest, EdgeBetweenRequest},
+        responses::{
+            EdgeCostResponse, ProblemDescriptionResponse, TsplibInstanceResponse,
+            TsplibInstanceWithMatrixResponse,
+        },
+    },
+    state::AppState,
 };
 
 use axum::{
     Json, Router,
     extract::{Path, State},
-    routing::get,
+    routing::{get, post},
 };
-use tokio_util::sync::CancellationToken;
-use tsplib_core::{
-    context::ExecutionContext,
-    models::TsplibInstance,
-    reader::{try_read_tsp_file, try_read_tsp_files},
-};
-use tsplib_parser::{SpecificationPart, try_parse, try_parse_header_line};
+use tsplib_core::models::TsplibInstance;
+use tsplib_parser::try_parse;
 
 /// Router for problem-related endpoints.
 pub fn router() -> Router<AppState> {
     Router::new()
         .route("/problems", get(get_problems))
         .route("/problems/{problemId}", get(get_problem))
+        .route(
+            "/problems/{problemId}/adjacency_matrix",
+            get(get_adjacency_matrix),
+        )
+        .route(
+            "/problems/{problemId}/no_matrix",
+            get(get_problem_without_matrix),
+        )
+        .route("/problems/{problemId}/edges", get(get_edge))
+        .route(
+            "/problems/{problemId}/edges/{nodeId}",
+            get(get_edges_for_node),
+        )
+        .route("/problems", post(create_problem))
 }
 
 /// Get the list of available TSP problem instances from the "./data" directory.
 ///
+/// # Arguments
+/// * `State(state): State<AppState>` - The shared application state containing the preloaded problem instances and their metadata.
+///
 /// # Returns
 /// * `Json<Vec<String>>` - A list of problem IDs (filenames without extension) in JSON format
 ///   or an error if the directory cannot be read.
-async fn get_problems() -> Result<Json<Vec<ProblemDescriptionResponse>>, ServerError> {
+async fn get_problems(
+    State(state): State<AppState>,
+) -> Result<Json<Vec<ProblemDescriptionResponse>>, ServerError> {
     tracing::info!("Received request to get list of problems");
 
     // read all tsp files from the "./data" directory
     // filter relevant metadata
     tracing::debug!("Reading TSP files from ./data directory");
-    let problems = try_read_tsp_files("./data")?
-        .iter()
-        .map(|(problem_id, problem_data)| {
-            // create a new specification part to hold the parsed metadata
-            let mut specification = SpecificationPart::new();
 
-            // extract lines containing metadata (lines with a colon)
-            let metadata_lines = problem_data
-                .lines()
-                .filter(|line| line.contains(':'))
-                .collect::<Vec<_>>();
-
-            // parse metadata lines and populate the specification
-            for line in metadata_lines {
-                let parts = line.split(':').map(|s| s.trim()).collect::<Vec<_>>();
-                if parts.len() != 2 {
-                    Err(ServerError::MetadataParseError(problem_id.to_string()))?;
-                }
-                try_parse_header_line(parts[0], parts[1], &mut specification)?;
-            }
-
-            // convert the specification to a problem description response
-            ProblemDescriptionResponse::try_from_specification(problem_id.clone(), &specification)
-        })
-        .collect::<Result<Vec<_>, ServerError>>()?;
+    // use the preloaded instances from the app state to avoid reading and parsing the files again
+    let problems = state
+        .instances
+        .read()
+        .expect("instances lock is poisoned")
+        .values()
+        .map(|i| i.try_into())
+        .collect::<Result<Vec<_>, _>>()?;
 
     tracing::info!(
         problem_count = problems.len(),
@@ -81,60 +88,257 @@ async fn get_problems() -> Result<Json<Vec<ProblemDescriptionResponse>>, ServerE
 async fn get_problem(
     State(state): State<AppState>,
     Path(problem_id): Path<String>,
-) -> Result<Json<TsplibInstance>, ServerError> {
-    tracing::info!(problem_id = %problem_id, state = ?state, "Received request to get problem instance");
+) -> Result<Json<TsplibInstanceWithMatrixResponse>, ServerError> {
+    tracing::info!(problem_id = %problem_id, state = ?state.solver_state, "Received request to get problem instance");
 
-    // check if any processing task is currently running
-    let mut solver_state = state.solver_state.lock().await;
+    let instance = state
+        .get_instance(&problem_id)
+        .ok_or(ServerError::ProblemInstanceNotFound(problem_id.clone()))?;
 
-    if let ProcessingState::Processing(_) = *solver_state {
-        return Err(ServerError::ProcessingAlreadyRunning);
-    }
+    let response = state
+        .run_cancellable(move |ctx| {
+            tracing::debug!(problem_id = %instance.problem_id, "Attempting to create response with full adjacency matrix");
+            TsplibInstanceWithMatrixResponse::try_from_instance(&instance, ctx)
+        })
+        .await?;
 
-    // create cancellation token for the new processing task
-    let token = CancellationToken::new();
-    let task_token = token.clone();
+    Ok(Json(response))
+}
 
-    tracing::debug!("Starting processing task");
+/// Get the full adjacency matrix for a specific TSP problem instance by its ID.
+///
+/// # Arguments
+/// * `problem_id` - The ID of the problem instance to retrieve the adjacency matrix for (corresponds to the filename without extension).
+///
+/// # Returns
+/// * `Json<Vec<Vec<i32>>>` - The adjacency matrix of the problem instance in JSON format or an error if the problem is not found,
+///   if another processing task is currently running, or if the processing task was cancelled.
+#[allow(clippy::needless_range_loop)]
+async fn get_adjacency_matrix(
+    State(state): State<AppState>,
+    Path(problem_id): Path<String>,
+) -> Result<Json<Vec<Vec<i32>>>, ServerError> {
+    tracing::info!(problem_id = %problem_id, state = ?state.solver_state, "Received request to get full adjacency matrix for problem instance");
 
-    let handle = tokio::task::spawn_blocking(move || {
-        let cancellation = || task_token.is_cancelled();
-        let ctx = ExecutionContext::new(&cancellation);
+    let instance = state
+        .get_instance(&problem_id)
+        .ok_or(ServerError::ProblemInstanceNotFound(problem_id.clone()))?;
 
-        // define file path to the problem instance
-        let problem_path = format!("./data/{}.tsp", problem_id);
+    let matrix = state
+        .run_cancellable(move |ctx| {
+            tracing::debug!(problem_id = %instance.problem_id, "Attempting to create full adjacency matrix");
+        let n = instance.nodes.len();
+        let mut adjacency_matrix = vec![vec![0; n]; n];
 
-        // try to read and parse the problem
-        tracing::debug!(problem_path = %problem_path, "Attempting to read and parse problem instance");
-        let (problem_id, problem_data) = try_read_tsp_file(problem_path.as_ref())?;
+        for i in 0..n {
+            if ctx.is_cancelled() {
+                return Err(ServerError::ProcessingCancelled);
+            }
 
-        let problem = try_parse(problem_id, problem_data)?.try_into_problem_instance(ctx)?;
-        tracing::debug!(problem_id = %problem.problem_id, "Successfully parsed problem instance");
+            for j in i + 1..n {
+                if i == j {
+                    continue;
+                }
 
-        Ok(problem)
-    });
-
-    tracing::debug!("Processing task started, updating app state");
-    *solver_state = ProcessingState::Processing(token);
-    drop(solver_state);
-    tracing::debug!(state = ?state, "App state updated");
-
-    // wait for the processing task to complete and get the result
-    tracing::debug!("Waiting for processing task to complete");
-    let result = handle.await;
-
-    // reset solver state to idle after completion
-    tracing::debug!("Processing task completed, resetting solver state to idle");
-    *state.solver_state.lock().await = ProcessingState::Idle;
-    tracing::debug!(state = ?state, "App state updated, returning result");
-
-    match result {
-        Ok(Ok(problem)) => {
-            tracing::info!(problem_count = %problem.problem_id, "Successfully processed problem instance");
-            Ok(Json(problem))
+                let distance = instance.try_get_distance(i + 1, j + 1)?;
+                adjacency_matrix[i][j] = distance;
+                adjacency_matrix[j][i] = distance;
+            }
         }
-        Ok(Err(e)) => Err(e),
-        Err(e) if e.is_cancelled() => Err(ServerError::ProcessingCancelled),
-        Err(e) => Err(ServerError::from(e)),
+        Ok(adjacency_matrix)
+        })
+        .await?;
+
+    Ok(Json(matrix))
+}
+
+/// Get a specific TSP problem instance by its ID without the adjacency matrix, which can be expensive to compute for large instances.
+///
+/// # Arguments
+/// * `problem_id` - The ID of the problem instance to retrieve.
+///
+/// # Returns
+/// * `Json<TsplibInstanceResponse>` - The problem instance data without the adjacency matrix in JSON format or an error if the problem is not found.
+async fn get_problem_without_matrix(
+    State(state): State<AppState>,
+    Path(problem_id): Path<String>,
+) -> Result<Json<TsplibInstanceResponse>, ServerError> {
+    tracing::info!(problem_id = %problem_id, "Received request to get problem instance without adjacency matrix");
+
+    let instance = state
+        .get_instance(&problem_id)
+        .ok_or(ServerError::ProblemInstanceNotFound(problem_id.clone()))?;
+
+    let response = TsplibInstanceResponse {
+        problem_id: instance.problem_id.clone(),
+        name: instance.name.clone(),
+        problem_type: instance.problem_type.clone(),
+        nodes: instance.nodes.clone(),
+        fixed_edges: instance.fixed_edges.clone(),
+    };
+
+    Ok(Json(response))
+}
+
+/// Get the cost of a specific edge between two nodes in a TSP problem instance.
+///
+/// # Arguments
+/// * `state` - The shared application state containing the preloaded problem instances and their metadata.
+/// * `problem_id` - The ID of the problem instance to query.
+/// * `from` - The starting node of the edge to query.
+/// * `to` - The ending node of the edge to query.
+///
+/// # Returns
+/// * `Json<i32>` - The cost of the edge between the specified nodes in JSON format or an error if the problem instance is not found.
+async fn get_edge(
+    State(state): State<AppState>,
+    Path(problem_id): Path<String>,
+    Json(request): Json<EdgeBetweenRequest>,
+) -> Result<Json<i32>, ServerError> {
+    tracing::info!(
+        problem_id = %problem_id,
+        from = %request.from,
+        to = %request.to,
+        "Received request to get distance between two nodes"
+    );
+
+    let instance = state
+        .get_instance(&problem_id)
+        .ok_or(ServerError::ProblemInstanceNotFound(problem_id.clone()))?;
+
+    let distance = instance.try_get_distance(request.from, request.to)?;
+
+    Ok(Json(distance))
+}
+
+/// Get the costs of all edges from a specific node to all other nodes in a TSP problem instance.
+///
+/// # Arguments
+/// * `state` - The shared application state containing the preloaded problem instances and their metadata.
+/// * `problem_id` - The ID of the problem instance to query.
+/// * `node_id` - The node for which to retrieve the edge costs to all other nodes.
+///
+/// # Returns
+/// * `Json<Vec<EdgeCostResponse>>` - A list of edge costs from the specified node to all other nodes in JSON format or an error
+///   if the problem instance is not found, if another processing task is currently running, or if the processing task was cancelled.
+async fn get_edges_for_node(
+    State(state): State<AppState>,
+    Path((problem_id, node_id)): Path<(String, usize)>,
+) -> Result<Json<Vec<EdgeCostResponse>>, ServerError> {
+    tracing::info!(
+        problem_id = %problem_id,
+        node_id = %node_id,
+        "Received request to get distances from a specific node to all other nodes"
+    );
+
+    let instance = state
+        .get_instance(&problem_id)
+        .ok_or(ServerError::ProblemInstanceNotFound(problem_id.clone()))?;
+
+    let edges = state
+        .run_cancellable(move |ctx| {
+            tracing::debug!(
+                problem_id = %instance.problem_id,
+                node_id = %node_id,
+                "Attempting to create vector of edges from node"
+            );
+
+            let n = instance.nodes.len();
+
+            (1..=n)
+                .filter(|&to| to != node_id)
+                .map(|to| {
+                    if ctx.is_cancelled() {
+                        return Err(ServerError::ProcessingCancelled);
+                    }
+
+                    Ok(EdgeCostResponse {
+                        from: node_id,
+                        to,
+                        weight: instance.try_get_distance(node_id, to)?,
+                    })
+                })
+                .collect::<Result<Vec<_>, _>>()
+        })
+        .await?;
+
+    Ok(Json(edges))
+}
+
+/// Create a new TSP problem instance on the server based on a definition according to the TSPLIB specification.
+///
+/// # Arguments
+/// * `state` - The shared application state containing the preloaded problem instances and their metadata.
+/// * `request` - The request containing the problem ID and the TSPLIB definition of the problem instance to create.
+///
+/// # Returns
+/// * `Json<TsplibInstanceResponse>` - The created problem instance data in JSON format or an error if the problem instance cannot be created,
+///   if another processing task is currently running, or if the processing task was cancelled.
+async fn create_problem(
+    State(state): State<AppState>,
+    Json(request): Json<CreateInstanceRequest>,
+) -> Result<Json<TsplibInstanceResponse>, ServerError> {
+    tracing::info!(problem_id = %request.problem_id, state = ?state.solver_state, "Received request to create new problem instance");
+
+    // validate problem ID to only contain alphanumeric characters, dashes, and underscores to avoid issues with file paths and URLs
+    if request.problem_id.is_empty()
+        || !request
+            .problem_id
+            .chars()
+            .all(|c| c.is_alphanumeric() || c == '-' || c == '_')
+    {
+        return Err(ServerError::InvalidProblemId(request.problem_id.clone()));
     }
+
+    let raw_definition = request.definition.clone();
+    let definition = try_parse(request.problem_id, request.definition)?;
+    let instance: TsplibInstance = definition.try_into()?;
+
+    // save the raw definition to a file in the "./data" directory
+    let problem_id = instance.problem_id.clone();
+    let path = format!("./data/{}.tsp", problem_id);
+
+    // use a blocking task to write the file to avoid blocking the async runtime
+    let write_result = tokio::task::spawn_blocking(move || {
+        let mut file = OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&path)?;
+
+        if let Err(e) = file.write_all(raw_definition.as_bytes()) {
+            let _ = std::fs::remove_file(&path);
+            return Err(e);
+        }
+        Ok(())
+    })
+    .await?;
+
+    // handle potential file write errors, such as the file already existing
+    match write_result {
+        Ok(()) => {}
+        Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => {
+            return Err(ServerError::ProblemInstanceAlreadyExists(
+                problem_id.clone(),
+            ));
+        }
+        Err(e) => return Err(ServerError::from(e)),
+    }
+
+    // first create response to prevent move of instance
+    let response = TsplibInstanceResponse {
+        problem_id: instance.problem_id.clone(),
+        name: instance.name.clone(),
+        problem_type: instance.problem_type.clone(),
+        nodes: instance.nodes.clone(),
+        fixed_edges: instance.fixed_edges.clone(),
+    };
+
+    // add the new instance to the app state so that it can be retrieved and solved like the preloaded instances
+    state
+        .instances
+        .write()
+        .expect("instances lock is poisoned")
+        .insert(problem_id, Arc::new(instance));
+
+    Ok(Json(response))
 }

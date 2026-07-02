@@ -3,7 +3,10 @@
 
 use std::collections::HashMap;
 
-use crate::{distances::*, enums::GraphError};
+use crate::{
+    distances::*,
+    enums::{ConversionError, EdgeWeightType, GraphError},
+};
 use serde::Serialize;
 
 /// A struct representing the node of a graph.
@@ -40,6 +43,35 @@ pub struct Graph {
 }
 
 impl Node {
+    /// Tries to get the distance between this node and another node based on the specified edge weight type.
+    ///
+    /// # Arguments
+    /// * `other` - A reference to another `Node` to which the distance will be calculated.
+    /// * `edge_weight_type` - The type of edge weight to use for the distance calculation, which determines the formula used to compute the distance.
+    ///
+    /// # Returns
+    /// * `Result<i32, ConversionError>` - The calculated distance between the two nodes if the edge weight type is valid,
+    ///   or a `ConversionError` if the edge weight type is invalid for 2D distance calculations.
+    pub(super) fn try_get_distance(
+        &self,
+        other: &Node,
+        edge_weight_type: &EdgeWeightType,
+    ) -> Result<i32, ConversionError> {
+        let distance_fn = match edge_weight_type {
+            EdgeWeightType::Euc2D => Node::distance_euc_2d,
+            EdgeWeightType::Max2D => Node::distance_max_2d,
+            EdgeWeightType::Man2D => Node::distance_man_2d,
+            EdgeWeightType::Ceil2D => Node::distance_ceil_2d,
+            EdgeWeightType::Geo => Node::distance_geo,
+            EdgeWeightType::Att => Node::distance_att,
+            _ => {
+                return Err(ConversionError::InvalidEdgeWeightType2D(*edge_weight_type));
+            }
+        };
+
+        Ok(distance_fn(self, other))
+    }
+
     /// Calculates the Euclidean distance between this node and another node in 2D space.
     ///
     /// # Arguments
@@ -48,7 +80,7 @@ impl Node {
     /// # Returns
     /// * `i32` - The calculated distance rounded to the nearest integer.
     ///   Returns 0 if the nodes are the same (i.e., have the same ID).
-    pub(super) fn _distance_euc_2d(&self, other: &Node) -> i32 {
+    fn distance_euc_2d(&self, other: &Node) -> i32 {
         distance_euc_2d((self.id, self.x, self.y), (other.id, other.x, other.y))
     }
 
@@ -61,7 +93,7 @@ impl Node {
     /// * `i32` - The calculated distance rounded to the nearest integer.
     ///   Returns 0 if the nodes are the same (i.e., have the same ID).
     ///   If either node does not have a z-coordinate, it is treated as 0 for the distance calculation.
-    pub(super) fn _distance_euc_3d(&self, other: &Node) -> i32 {
+    fn _distance_euc_3d(&self, other: &Node) -> i32 {
         _distance_euc_3d(
             (self.id, self.x, self.y, self.z),
             (other.id, other.x, other.y, other.z),
@@ -76,7 +108,7 @@ impl Node {
     /// # Returns
     /// * `i32` - The calculated distance rounded to the nearest integer.
     ///   Returns 0 if the nodes are the same (i.e., have the same ID).
-    pub(super) fn _distance_man_2d(&self, other: &Node) -> i32 {
+    fn distance_man_2d(&self, other: &Node) -> i32 {
         distance_man_2d((self.id, self.x, self.y), (other.id, other.x, other.y))
     }
 
@@ -89,7 +121,7 @@ impl Node {
     /// * `i32` - The calculated distance rounded to the nearest integer.
     ///   Returns 0 if the nodes are the same (i.e., have the same ID).
     ///   If either node does not have a z-coordinate, it is treated as 0 for the distance calculation.
-    pub(super) fn _distance_man_3d(&self, other: &Node) -> i32 {
+    fn _distance_man_3d(&self, other: &Node) -> i32 {
         _distance_man_3d(
             (self.id, self.x, self.y, self.z),
             (other.id, other.x, other.y, other.z),
@@ -104,7 +136,7 @@ impl Node {
     /// # Returns
     /// * `i32` - The calculated distance rounded to the nearest integer.
     ///   Returns 0 if the nodes are the same (i.e., have the same ID).
-    pub(super) fn _distance_max_2d(&self, other: &Node) -> i32 {
+    fn distance_max_2d(&self, other: &Node) -> i32 {
         distance_max_2d((self.id, self.x, self.y), (other.id, other.x, other.y))
     }
 
@@ -117,7 +149,7 @@ impl Node {
     /// * `i32` - The calculated distance rounded to the nearest integer.
     ///   Returns 0 if the nodes are the same (i.e., have the same ID).
     ///   If either node does not have a z-coordinate, it is treated as 0 for the distance calculation.
-    pub(super) fn _distance_max_3d(&self, other: &Node) -> i32 {
+    fn _distance_max_3d(&self, other: &Node) -> i32 {
         _distance_max_3d(
             (self.id, self.x, self.y, self.z),
             (other.id, other.x, other.y, other.z),
@@ -132,7 +164,7 @@ impl Node {
     /// # Returns
     /// * `i32` - The calculated distance rounded up to the nearest integer.
     ///   Returns 0 if the nodes are the same (i.e., have the same ID).
-    pub(super) fn _distance_ceil_2d(&self, other: &Node) -> i32 {
+    fn distance_ceil_2d(&self, other: &Node) -> i32 {
         distance_ceil_2d((self.id, self.x, self.y), (other.id, other.x, other.y))
     }
 
@@ -145,7 +177,7 @@ impl Node {
     /// # Returns
     /// * `i32` - The calculated distance rounded to the nearest integer.
     ///   Returns 0 if the nodes are the same (i.e., have the same ID).
-    pub(super) fn _distance_att(&self, other: &Node) -> i32 {
+    fn distance_att(&self, other: &Node) -> i32 {
         distance_att((self.id, self.x, self.y), (other.id, other.x, other.y))
     }
 
@@ -158,7 +190,7 @@ impl Node {
     /// # Returns
     /// * `i32` - The calculated distance rounded to the nearest integer.
     ///   Returns 0 if the nodes are the same (i.e., have the same ID).
-    pub(super) fn _distance_geo(&self, other: &Node) -> i32 {
+    fn distance_geo(&self, other: &Node) -> i32 {
         distance_geo((self.id, self.x, self.y), (other.id, other.x, other.y))
     }
 }

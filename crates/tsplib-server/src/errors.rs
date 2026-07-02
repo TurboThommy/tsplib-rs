@@ -2,7 +2,7 @@
 use axum::{http::StatusCode, response::IntoResponse};
 use thiserror::Error;
 use tokio::task::JoinError;
-use tsplib_core::enums::{ConversionError, IoError};
+use tsplib_core::enums::{ConversionError, InstanceError, IoError};
 use tsplib_parser::ParseError;
 use tsplib_solver::errors::SolverError;
 
@@ -26,6 +26,12 @@ pub enum ServerError {
     UnsupportedEdgeWeightType(String),
     #[error("No known solution cost found for problem instance: {0}")]
     SolutionProblemIdNotFound(String),
+    #[error("Problem instance not found: {0}")]
+    ProblemInstanceNotFound(String),
+    #[error("Invalid problem ID: {0}")]
+    InvalidProblemId(String),
+    #[error("Problem instance with ID {0} already exists")]
+    ProblemInstanceAlreadyExists(String),
 }
 
 impl IntoResponse for ServerError {
@@ -70,6 +76,18 @@ impl IntoResponse for ServerError {
                 tracing::error!(error = %self, "No known solution cost found for problem instance");
                 (StatusCode::NOT_FOUND, self.to_string())
             }
+            ServerError::ProblemInstanceNotFound(_) => {
+                tracing::error!(error = %self, "Problem instance not found");
+                (StatusCode::NOT_FOUND, self.to_string())
+            }
+            ServerError::InvalidProblemId(_) => {
+                tracing::error!(error = %self, "Invalid problem ID");
+                (StatusCode::BAD_REQUEST, self.to_string())
+            }
+            ServerError::ProblemInstanceAlreadyExists(_) => {
+                tracing::error!(error = %self, "Problem instance already exists");
+                (StatusCode::CONFLICT, self.to_string())
+            }
         };
         (status, error_message).into_response()
     }
@@ -108,5 +126,11 @@ impl From<JoinError> for ServerError {
 impl From<IoError> for ServerError {
     fn from(value: IoError) -> Self {
         ServerError::IoError(value.to_string())
+    }
+}
+
+impl From<InstanceError> for ServerError {
+    fn from(value: InstanceError) -> Self {
+        ServerError::ProblemParseError(value.to_string())
     }
 }

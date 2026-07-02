@@ -91,25 +91,26 @@ impl UnionFind {
 pub fn try_get_mst_kruskal(tsplib_instance: &TsplibInstance) -> Result<Graph, MstComputationError> {
     tracing::debug!(
         node_count = tsplib_instance.nodes.len(),
-        edge_candidates = tsplib_instance.adjacency_matrix.len()
-            * (tsplib_instance.adjacency_matrix.len() - 1)
-            / 2,
+        edge_candidates = tsplib_instance.nodes.len() * (tsplib_instance.nodes.len() - 1) / 2,
         "Starting Kruskal's MST computation",
     );
-    let matrix = &tsplib_instance.adjacency_matrix;
-
-    if matrix.is_empty() {
-        return Err(MstComputationError::EmptyAdjacencyMatrix);
-    }
 
     // resulting edges of the MST
     let mut t: Vec<(usize, usize, i32)> = Vec::new();
 
-    let n = matrix.len();
+    let n = tsplib_instance.nodes.len();
 
     // get edges of the triangular matrix without diagonal and sort them by distance in ascending order
     let edges = (0..(n - 1))
-        .flat_map(|i| ((i + 1)..n).map(move |j| (i + 1, j + 1, matrix[i][j])))
+        .flat_map(|i| {
+            ((i + 1)..n).map(move |j| {
+                tsplib_instance
+                    .try_get_distance(i + 1, j + 1)
+                    .map(|distance| (i + 1, j + 1, distance))
+            })
+        })
+        .collect::<Result<Vec<_>, _>>()?
+        .into_iter()
         .sorted_by_key(|&(_, _, distance)| distance)
         .collect::<Vec<_>>();
 
@@ -157,19 +158,12 @@ pub fn try_get_mst_prim(
 ) -> Result<Graph, MstComputationError> {
     tracing::debug!(
         node_count = tsplib_instance.nodes.len(),
-        edge_candidates = tsplib_instance.adjacency_matrix.len()
-            * (tsplib_instance.adjacency_matrix.len() - 1)
-            / 2,
+        edge_candidates = tsplib_instance.nodes.len() * (tsplib_instance.nodes.len() - 1) / 2,
         start_node,
         "Starting Prim's MST computation",
     );
-    let matrix = &tsplib_instance.adjacency_matrix;
-    let n = matrix.len();
 
-    // check if adjacency matrix is empty
-    if matrix.is_empty() {
-        return Err(MstComputationError::EmptyAdjacencyMatrix);
-    }
+    let n = tsplib_instance.nodes.len();
 
     // check if start_node is valid
     if start_node == 0 || start_node > n {
@@ -205,7 +199,8 @@ pub fn try_get_mst_prim(
         // update the best weights for nodes not yet in the MST
         for v in 0..n {
             if !in_mst[v] {
-                let weight = matrix[u][v];
+                // let weight = matrix[u][v];
+                let weight = tsplib_instance.try_get_distance(u + 1, v + 1)?;
 
                 if weight < best_weight[v] {
                     best_weight[v] = weight;
@@ -249,30 +244,25 @@ pub fn try_get_mst_boruvka(tsplib_instance: &TsplibInstance) -> Result<Graph, Ms
 
     tracing::debug!(
         node_count = tsplib_instance.nodes.len(),
-        edge_candidates = tsplib_instance.adjacency_matrix.len()
-            * (tsplib_instance.adjacency_matrix.len() - 1)
-            / 2,
+        edge_candidates = tsplib_instance.nodes.len() * (tsplib_instance.nodes.len() - 1) / 2,
         "Starting Borůvka's MST computation",
     );
 
-    let matrix = &tsplib_instance.adjacency_matrix;
+    let n = tsplib_instance.nodes.len();
 
-    if matrix.is_empty() {
-        return Err(MstComputationError::EmptyAdjacencyMatrix);
-    }
-
-    let n = matrix.len();
-
-    // get edges without diagonal
     let edges = (0..(n - 1))
         .flat_map(|i| {
-            ((i + 1)..n).map(move |j| Edge {
-                u: i + 1,
-                v: j + 1,
-                weight: matrix[i][j],
+            ((i + 1)..n).map(move |j| {
+                tsplib_instance
+                    .try_get_distance(i + 1, j + 1)
+                    .map(|distance| Edge {
+                        u: i + 1,
+                        v: j + 1,
+                        weight: distance,
+                    })
             })
         })
-        .collect::<Vec<_>>();
+        .collect::<Result<Vec<_>, _>>()?;
 
     // initialize union-find structure for `n` nodes
     let mut uf = UnionFind::new(n);

@@ -9,4 +9,6 @@ pub enum SolverAlgorithm {
     HeldKarp,
     Greedy,
     Christofides,
+    LinearProgramming,
+    LpOptimized,
 }

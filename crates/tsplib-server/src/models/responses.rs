@@ -1,6 +1,12 @@
 //! Response models used in the REST API endpoints.
+use std::{sync::Arc, time::Duration};
+
 use serde::Serialize;
-use tsplib_core::enums::EdgeWeightType;
+use tsplib_core::{
+    context::ExecutionContext,
+    enums::{DistanceSource, EdgeWeightType, ProblemType},
+    models::{Node, TspSolution, TsplibInstance},
+};
 use tsplib_parser::SpecificationPart;
 
 use crate::errors::ServerError;
@@ -35,6 +41,7 @@ impl ProblemDescriptionResponse {
     /// # Returns
     /// * `Result<ProblemDescriptionResponse, ServerError>` - Ok with a new ProblemDescriptionResponse
     ///   if the necessary metadata is present and valid, or an Err with a ServerError if there
+    #[allow(dead_code)]
     pub fn try_from_specification(
         problem_id: String,
         specification: &SpecificationPart,
@@ -93,9 +100,143 @@ impl ProblemDescriptionResponse {
     }
 }
 
+impl TryFrom<&Arc<TsplibInstance>> for ProblemDescriptionResponse {
+    type Error = ServerError;
+
+    fn try_from(value: &Arc<TsplibInstance>) -> Result<Self, Self::Error> {
+        let node_display_type = match value.distance_source {
+            DistanceSource::Explicit(_) => NodeDisplayType::TwoD,
+            DistanceSource::Geometric(edge_weight_type) => {
+                match edge_weight_type {
+                    // geo problems
+                    EdgeWeightType::Geo => NodeDisplayType::Geo,
+
+                    // problems with 2D coordinates
+                    EdgeWeightType::Euc2D
+                    | EdgeWeightType::Max2D
+                    | EdgeWeightType::Man2D
+                    | EdgeWeightType::Ceil2D
+                    | EdgeWeightType::Att => NodeDisplayType::TwoD,
+
+                    // problems with 3D coordinates
+                    EdgeWeightType::Euc3D | EdgeWeightType::Max3D | EdgeWeightType::Man3D => {
+                        NodeDisplayType::ThreeD
+                    }
+
+                    // this case should never happen
+                    EdgeWeightType::Explicit => {
+                        panic!("Unexpected Explicit edge weight type for geometric distance source")
+                    }
+
+                    // Unsupported for now
+                    _ => {
+                        return Err(ServerError::UnsupportedEdgeWeightType(
+                            value.problem_id.to_string(),
+                        ));
+                    }
+                }
+            }
+        };
+
+        Ok(ProblemDescriptionResponse {
+            problem_id: value.problem_id.clone(),
+            name: value.name.clone(),
+            dimension: value.nodes.len(),
+            node_display_type,
+        })
+    }
+}
+
 /// Response struct for the GET /solutions/{problemId} endpoint, containing the solution cost for a given problem instance
 #[derive(Debug, Serialize)]
 pub(crate) struct SolutionResponse {
     pub id: String,
     pub cost: i64,
+}
+
+#[derive(Serialize)]
+pub(crate) struct TsplibInstanceWithMatrixResponse {
+    pub problem_id: String,
+    pub name: String,
+    pub problem_type: ProblemType,
+    pub nodes: Vec<Node>,
+    pub adjacency_matrix: Vec<Vec<i32>>,
+    pub fixed_edges: Option<Vec<(usize, usize)>>,
+}
+
+impl TsplibInstanceWithMatrixResponse {
+    /// Try to create a TsplibInstanceResponse from a given TsplibInstance, which contains all the data of a TSP problem instance.
+    ///
+    /// # Arguments
+    /// * `instance` - A TsplibInstance struct containing all the data of a TSP problem instance, including problem ID, name, type, nodes, distance source, and fixed edges.
+    ///
+    /// # Returns
+    /// * `Result<TsplibInstanceResponse, ServerError>` - Ok with a new TsplibInstanceResponse if the instance data is valid and can be converted, or a ServerError if there is an issue with the instance data.
+    #[allow(clippy::needless_range_loop)]
+    pub fn try_from_instance(
+        instance: &TsplibInstance,
+        ctx: &ExecutionContext,
+    ) -> Result<Self, ServerError> {
+        let n = instance.nodes.len();
+
+        let mut adjacency_matrix = vec![vec![0; n]; n];
+
+        for i in 0..n {
+            if ctx.is_cancelled() {
+                return Err(ServerError::ProcessingCancelled);
+            }
+
+            for j in i + 1..n {
+                if i == j {
+                    continue;
+                }
+
+                let distance = instance.try_get_distance(i + 1, j + 1)?;
+                adjacency_matrix[i][j] = distance;
+                adjacency_matrix[j][i] = distance;
+            }
+        }
+
+        Ok(Self {
+            problem_id: instance.problem_id.clone(),
+            name: instance.name.clone(),
+            problem_type: instance.problem_type.clone(),
+            nodes: instance.nodes.clone(),
+            adjacency_matrix,
+            fixed_edges: instance.fixed_edges.clone(),
+        })
+    }
+}
+
+#[derive(Serialize)]
+pub(crate) struct TsplibInstanceResponse {
+    pub problem_id: String,
+    pub name: String,
+    pub problem_type: ProblemType,
+    pub nodes: Vec<Node>,
+    pub fixed_edges: Option<Vec<(usize, usize)>>,
+}
+
+#[derive(Serialize)]
+pub(crate) struct EdgeCostResponse {
+    pub from: usize,
+    pub to: usize,
+    pub weight: i32,
+}
+
+#[derive(Serialize)]
+pub(crate) struct StartSolverResponse {
+    pub tour: Vec<usize>,
+    pub cost: i64,
+    pub elpased_time_ms: u128,
+}
+
+impl StartSolverResponse {
+    pub fn from_solution(solution: &TspSolution, elapsed_time_duration: Duration) -> Self {
+        Self {
+            tour: solution.tour.clone(),
+            cost: solution.cost,
+            elpased_time_ms: elapsed_time_duration.as_millis(),
+        }
+    }
 }

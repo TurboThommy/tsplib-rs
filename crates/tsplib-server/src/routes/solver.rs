@@ -1,4 +1,6 @@
 //! Handlers for the REST API routes related to solvers.
+use std::time::Instant;
+
 use axum::{
     Json, Router,
     extract::State,
@@ -9,12 +11,13 @@ use tokio_util::sync::CancellationToken;
 use tsplib_core::{context::ExecutionContext, models::TspSolution, reader::try_read_tsp_file};
 use tsplib_parser::try_parse;
 use tsplib_solver::{
-    Christofides, Greedy, HeldKarp, SolverOptions, TspSolver, enums::SolverAlgorithm,
+    Christofides, Greedy, HeldKarp, LinearProgram, LpOptimized, SolverOptions, TspSolver,
+    enums::SolverAlgorithm::{self},
 };
 
 use crate::{
     errors::ServerError,
-    models::requests::StartSolverRequest,
+    models::{requests::StartSolverRequest, responses::StartSolverResponse},
     state::{AppState, ProcessingState},
 };
 
@@ -73,6 +76,8 @@ fn run_solver(
         SolverAlgorithm::Greedy => Box::new(Greedy::new()),
         SolverAlgorithm::HeldKarp => Box::new(HeldKarp::try_new(25)?),
         SolverAlgorithm::Christofides => Box::new(Christofides::new()),
+        SolverAlgorithm::LinearProgramming => Box::new(LinearProgram::new()),
+        SolverAlgorithm::LpOptimized => Box::new(LpOptimized::new()),
     };
     tracing::debug!(solver_algorithm = ?algorithm, "Initialized solver instance, trying to solve problem");
 
@@ -97,7 +102,7 @@ fn run_solver(
 async fn start_solver(
     State(state): State<AppState>,
     Json(request): Json<StartSolverRequest>,
-) -> Result<Json<TspSolution>, ServerError> {
+) -> Result<Json<StartSolverResponse>, ServerError> {
     tracing::info!(request = ?request, "Received request to start solver");
 
     // check if a processing task is already running
@@ -123,6 +128,9 @@ async fn start_solver(
         "Starting solver task"
     );
 
+    // start timer for the solver task
+    let start_time = Instant::now();
+
     // spawn a blocking task to run the solver and set the solver state to processing
     let handle = tokio::task::spawn_blocking(move || {
         run_solver(
@@ -137,21 +145,27 @@ async fn start_solver(
     tracing::debug!("Solver task spawned, updating app state");
     *solver_state = ProcessingState::Processing(token);
     drop(solver_state);
-    tracing::debug!(state = ?state, "App state updated");
+    tracing::debug!(state = ?state.solver_state, "App state updated");
 
     // wait for the solver to finish and get the result
     tracing::debug!("Waiting for solver task to complete");
     let result = handle.await;
 
+    // log the elapsed time for the solver task
+    let elapsed_time = start_time.elapsed();
+
     // reset solver state to idle after completion
-    tracing::debug!("Solver task completed, resetting solver state to idle");
+    tracing::debug!(elapsed_time = ?elapsed_time, "Solver task completed, resetting solver state to idle");
     *state.solver_state.lock().await = ProcessingState::Idle;
-    tracing::debug!(state = ?state, "App state updated, returning result");
+    tracing::debug!(state = ?state.solver_state, "App state updated, returning result");
 
     match result {
         Ok(Ok(solution)) => {
             tracing::info!("Solver task completed successfully");
-            Ok(Json(solution))
+            Ok(Json(StartSolverResponse::from_solution(
+                &solution,
+                elapsed_time,
+            )))
         }
         Ok(Err(e)) => Err(e),
         Err(e) if e.is_cancelled() => Err(ServerError::ProcessingCancelled),

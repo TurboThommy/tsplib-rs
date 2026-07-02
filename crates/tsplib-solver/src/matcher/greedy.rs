@@ -1,7 +1,7 @@
 //! This module contains a greedy algorithm for computing a perfect matching on a set of odd-degree vertices in a graph, which is used as part of the Christofides algorithm for solving the TSP.
 
 use crate::{PerfectMatchingAlgorithm, errors::MatcherError};
-use tsplib_core::models::Edge;
+use tsplib_core::models::{Edge, TsplibInstance};
 
 #[derive(Default)]
 pub struct GreedyMatching {}
@@ -24,7 +24,7 @@ impl PerfectMatchingAlgorithm for GreedyMatching {
     fn try_compute(
         &self,
         odd_vertices: &[usize],
-        problem: &tsplib_core::models::TsplibInstance,
+        problem: &TsplibInstance,
     ) -> Result<Vec<tsplib_core::models::Edge>, crate::errors::MatcherError> {
         tracing::debug!(
             odd_vertices = odd_vertices.len(),
@@ -46,13 +46,15 @@ impl PerfectMatchingAlgorithm for GreedyMatching {
             let (best_index, _) = unmatched
                 .iter()
                 .enumerate()
-                .min_by_key(|(_, v)| problem.adjacency_matrix[u - 1][*v - 1])
+                // .min_by_key(|(_, v)| problem.adjacency_matrix[u - 1][*v - 1])
+                .min_by_key(|(_, v)| problem.try_get_distance(u, **v).unwrap_or(i32::MAX))
                 .ok_or(MatcherError::NoMatchingCandidate(u))?;
 
             // Remove the best match from the unmatched list and add the edge to the matching.
             let v = unmatched.remove(best_index);
             // Get the weight of the edge between u and v from the adjacency matrix.
-            let weight = problem.adjacency_matrix[u - 1][v - 1];
+            // let weight = problem.adjacency_matrix[u - 1][v - 1];
+            let weight = problem.try_get_distance(u, v).unwrap_or(i32::MAX);
 
             // Add the edge (u, v) with the corresponding weight to the matching.
             matching.push(Edge { u, v, weight });

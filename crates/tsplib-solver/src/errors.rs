@@ -6,7 +6,7 @@ use blossom_v::BlossomVError;
 use thiserror::Error;
 use tsplib_core::enums::{
     GraphError,
-    InstanceError::{self, DistanceInvalidNodeId},
+    InstanceError::{self},
     MstComputationError,
 };
 
@@ -45,6 +45,12 @@ pub enum SolverError {
     MatcherError(String),
     #[error("Error finding Eulerian circuit: {0}")]
     EulerianCircuitError(String),
+    // #[error(
+    //     "Error during linear programming relaxation, sum of artificial variables is {0}, expected 0 for a feasible solution."
+    // )]
+    // LpRelaxationInfeasible(f64),
+    #[error("Error during simplex algorithm: {0}")]
+    SimplexError(String),
 }
 
 /// Errors that can occur during the perfect matching step of the Christofides algorithm.
@@ -107,13 +113,17 @@ pub enum MatcherError {
     BlossomExpansionNotImplemented,
 }
 
+#[derive(Error, Debug, PartialEq)]
+pub enum SimplexError {
+    #[error("The linear program is unbounded.")]
+    Unbounded,
+    #[error("The linear program is infeasible.")]
+    Infeasible,
+}
+
 impl From<InstanceError> for SolverError {
     fn from(value: InstanceError) -> Self {
-        match value {
-            DistanceInvalidNodeId(_, _, _) => {
-                SolverError::DistanceRetrievalError(value.to_string())
-            }
-        }
+        SolverError::DistanceRetrievalError(value.to_string())
     }
 }
 
@@ -141,6 +151,12 @@ impl From<GraphError> for SolverError {
     }
 }
 
+impl From<SimplexError> for SolverError {
+    fn from(value: SimplexError) -> Self {
+        SolverError::SimplexError(value.to_string())
+    }
+}
+
 #[cfg(feature = "blossom-v")]
 impl From<BlossomVError> for MatcherError {
     fn from(value: BlossomVError) -> Self {
@@ -150,8 +166,6 @@ impl From<BlossomVError> for MatcherError {
 
 impl From<InstanceError> for MatcherError {
     fn from(value: InstanceError) -> Self {
-        match value {
-            DistanceInvalidNodeId(_, _, _) => MatcherError::BlossomVError(value.to_string()),
-        }
+        MatcherError::BlossomVError(value.to_string())
     }
 }

@@ -2,6 +2,7 @@
 mod data_section;
 mod data_section_type;
 mod display_data_type;
+mod distance_source;
 mod edge_data_format;
 mod edge_weight_format;
 mod edge_weight_type;
@@ -12,6 +13,7 @@ mod problem_type;
 pub use data_section::DataSection;
 pub use data_section_type::DataSectionType;
 pub use display_data_type::DisplayDataType;
+pub use distance_source::DistanceSource;
 pub use edge_data_format::EdgeDataFormat;
 pub use edge_weight_format::EdgeWeightFormat;
 pub use edge_weight_type::EdgeWeightType;
