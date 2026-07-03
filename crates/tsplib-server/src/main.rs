@@ -1,6 +1,7 @@
 //! REST API for the TSP library.
 mod errors;
 mod models;
+mod monitor;
 mod routes;
 mod state;
 
