@@ -17,11 +17,9 @@ use tracing_subscriber::{EnvFilter, layer::SubscriberExt, util::SubscriberInitEx
 async fn main() {
     // initialize tracing
     tracing_subscriber::registry()
-        .with(
-            EnvFilter::try_from_default_env().unwrap_or_else(|_| {
-                "tsplib_server=info,tsplib_solver=debug,tower_http=info".into()
-            }),
-        )
+        .with(EnvFilter::try_from_default_env().unwrap_or_else(|_| {
+            "tsplib_server=info,tsplib_solver=debug,tsplib_core=debug,tower_http=info".into()
+        }))
         .with(tracing_subscriber::fmt::layer())
         .init();
 

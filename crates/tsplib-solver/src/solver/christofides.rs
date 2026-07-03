@@ -78,9 +78,9 @@ impl TspSolver for Christofides {
 
         // get the minimum spanning tree
         let mst = match mst_algorithm {
-            MstAlgorithm::Kruskal => problem.try_get_mst_kruskal()?,
-            MstAlgorithm::Prim => problem.try_get_mst_prim(start_node)?,
-            MstAlgorithm::Boruvka => problem.try_get_mst_boruvka()?,
+            MstAlgorithm::Kruskal => problem.try_get_mst_kruskal(ctx)?,
+            MstAlgorithm::Prim => problem.try_get_mst_prim(start_node, ctx)?,
+            MstAlgorithm::Boruvka => problem.try_get_mst_boruvka(ctx)?,
         };
 
         tracing::debug!(mst_edges = mst.edges.len(), "MST computed");
