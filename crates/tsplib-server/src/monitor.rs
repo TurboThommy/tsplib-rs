@@ -32,6 +32,7 @@ pub fn memory_utilization(sys: &mut System) -> Option<f64> {
     Some(total.saturating_sub(sys.available_memory()) as f64 / total as f64)
 }
 
+#[cfg(target_os = "linux")]
 fn cgroup_v2_utilization() -> Option<f64> {
     let max_raw = std::fs::read_to_string("/sys/fs/cgroup/memory.max").ok()?;
     let max_raw = max_raw.trim();
