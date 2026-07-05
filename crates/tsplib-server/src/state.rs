@@ -2,14 +2,18 @@
 use std::{
     collections::HashMap,
     fs,
-    sync::{Arc, RwLock},
+    sync::{
+        Arc, RwLock,
+        atomic::{AtomicBool, Ordering},
+    },
+    time::Instant,
 };
 use tokio::sync::Mutex;
 use tokio_util::sync::CancellationToken;
 use tsplib_core::{context::ExecutionContext, models::TsplibInstance, reader::read_tsp_files};
 use tsplib_parser::parse;
 
-use crate::errors::ServerError;
+use crate::{errors::ServerError, monitor};
 
 /// Represents the current state of the TSP solver,which can either be idle or processing a problem instance.
 #[derive(Debug)]
@@ -82,27 +86,87 @@ impl AppState {
         // lock is released here
 
         tracing::debug!("Starting processing task");
+        let work_token = token.clone();
         let handle = tokio::task::spawn_blocking(move || {
-            let cancellation = || token.is_cancelled();
+            let cancellation = || work_token.is_cancelled();
             let ctx = ExecutionContext::new(&cancellation);
             work(&ctx)
         });
 
-        // wait for the processing task to complete and get the result
-        tracing::debug!("Waiting for processing task to complete");
-        let result = handle.await;
+        // memory guard
+        let resource_tripped = Arc::new(AtomicBool::new(false));
+        let guard = monitor::spawn_memory_guard(
+            token.clone(),
+            monitor::MEMORY_ABORT_THRESHOLD,
+            resource_tripped.clone(),
+        );
+
+        // create detached task to wait for the processing task to complete and reset state to idle
+        let cleanup_state = self.clone();
+        let start_time = Instant::now();
+        let (tx, rx) = tokio::sync::oneshot::channel();
+
+        tokio::spawn(async move {
+            // wait for the processing task to complete and get the result
+            tracing::debug!("Waiting for processing task to complete");
+            let join_result = handle.await;
+
+            // solver has returned, stop resource guard
+            guard.abort();
+
+            // log the elapsed time for the solver task
+            let elapsed_time = start_time.elapsed();
+
+            tracing::debug!(elapsed_time = ?elapsed_time, "Processing task completed, resetting state to idle");
+            *cleanup_state.solver_state.lock().await = ProcessingState::Idle;
+            tracing::debug!(state = ?cleanup_state.solver_state, "App state updated, returning result");
+
+            let outcome: Result<T, ServerError> = if resource_tripped.load(Ordering::SeqCst) {
+                Err(ServerError::ResourceLimitExceeded)
+            } else {
+                match join_result {
+                    Ok(Ok(value)) => Ok(value),
+                    Ok(Err(e)) => Err(e),
+                    Err(e) if e.is_cancelled() => Err(ServerError::ProcessingCancelled),
+                    Err(e) => Err(ServerError::from(e)),
+                }
+            };
+
+            if let Err(outcome) = tx.send(outcome) {
+                match &outcome {
+                    Ok(_) => tracing::info!(
+                        ?elapsed_time,
+                        "Task finished after caller disconnected; result discarded"
+                    ),
+                    Err(ServerError::ProcessingCancelled) => {
+                        tracing::info!(?elapsed_time, "Task cancelled after caller disconnected")
+                    }
+                    Err(ServerError::ResourceLimitExceeded) => tracing::warn!(
+                        ?elapsed_time,
+                        "Task aborted by memory guard after caller disconnected"
+                    ),
+                    Err(e) => {
+                        tracing::error!(error = %e, ?elapsed_time, "Task failed after caller disconnected")
+                    }
+                }
+            }
+        });
+
+        rx.await.map_err(|_| ServerError::ProcessingCancelled)?
+
+        // let result = handle.await;
 
         // Always reset state to idle, even on error/cancellation
-        tracing::debug!("Processing task completed, resetting solver state to idle");
-        *self.solver_state.lock().await = ProcessingState::Idle;
-        tracing::debug!(state = ?self.solver_state, "App state updated, returning result");
+        // tracing::debug!("Processing task completed, resetting solver state to idle");
+        // *self.solver_state.lock().await = ProcessingState::Idle;
+        // tracing::debug!(state = ?self.solver_state, "App state updated, returning result");
 
-        match result {
-            Ok(Ok(value)) => Ok(value),
-            Ok(Err(e)) => Err(e),
-            Err(e) if e.is_cancelled() => Err(ServerError::ProcessingCancelled),
-            Err(e) => Err(ServerError::from(e)),
-        }
+        // match result {
+        //     Ok(Ok(value)) => Ok(value),
+        //     Ok(Err(e)) => Err(e),
+        //     Err(e) if e.is_cancelled() => Err(ServerError::ProcessingCancelled),
+        //     Err(e) => Err(ServerError::from(e)),
+        // }
     }
 }
 
