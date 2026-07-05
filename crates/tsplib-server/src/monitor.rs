@@ -1,3 +1,6 @@
+//! This module provides functionality for monitoring system memory usage and aborting a running TSP solver if memory usage exceeds a specified threshold.
+//! It includes functions to calculate memory utilization, check for cgroup v2 limits on Linux, and spawn a background task that monitors memory usage at regular intervals.
+
 use std::{
     sync::{
         Arc,
@@ -16,6 +19,13 @@ pub const MEMORY_ABORT_THRESHOLD: f64 = 0.95;
 /// Interval for sampling memory usage.
 const SAMPLE_INTERVAL: Duration = Duration::from_millis(500);
 
+/// Returns the current memory utilization as a fraction of total memory.
+///
+/// # Arguments
+/// * `sys` - A mutable reference to a `System` instance from the `sysinfo` crate, which is used to query system information.
+///
+/// # Returns
+/// * `Option<f64>` - Returns Some(fraction) if memory utilization can be determined, or None if it cannot be determined (e.g., total memory is zero).
 pub fn memory_utilization(sys: &mut System) -> Option<f64> {
     // prefer the container's own limit on linux
     // falls through on other platforms or whe no limit is configured
@@ -32,6 +42,12 @@ pub fn memory_utilization(sys: &mut System) -> Option<f64> {
     Some(total.saturating_sub(sys.available_memory()) as f64 / total as f64)
 }
 
+/// Returns the current memory utilization as a fraction of the cgroup v2 memory limit on Linux.
+///
+/// # Returns
+/// * `Option<f64>` - Returns Some(fraction) if memory utilization can be determined,
+///   or None if it cannot be determined (e.g., not running on Linux, cgroup v2 not in use, or memory limit is not set).
+#[cfg(target_os = "linux")]
 fn cgroup_v2_utilization() -> Option<f64> {
     let max_raw = std::fs::read_to_string("/sys/fs/cgroup/memory.max").ok()?;
     let max_raw = max_raw.trim();
@@ -50,6 +66,16 @@ fn cgroup_v2_utilization() -> Option<f64> {
     Some(current as f64 / max as f64)
 }
 
+/// Spawns a background task that monitors memory usage at regular intervals and cancels the provided `CancellationToken`
+/// if memory utilization exceeds the specified threshold.
+///
+/// # Arguments
+/// * `token` - A `CancellationToken` that will be cancelled if memory utilization exceeds the threshold.
+/// * `threshold` - A fraction (between 0.0 and 1.0) representing the memory utilization threshold at which the task should cancel the token.
+/// * `tripped` - An `Arc<AtomicBool>` that will be set to true if the memory threshold is exceeded and the token is cancelled.
+///
+/// # Returns
+/// * `JoinHandle<()>` - A handle to the spawned task, which can be used to await its completion or cancel it if needed.
 pub fn spawn_memory_guard(
     token: CancellationToken,
     threshold: f64,
