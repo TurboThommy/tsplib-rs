@@ -217,7 +217,7 @@ fn test_kruskal() {
         tsp_instance.try_into().expect("failed to convert instance");
 
     let mst = problem_instance
-        .try_get_mst_kruskal()
+        .try_get_mst_kruskal(ExecutionContext::default())
         .expect("failed to compute MST using Kruskal's algorithm");
 
     tracing::info!(
@@ -244,7 +244,7 @@ fn test_prim() {
 
     let mst_time = Instant::now();
     let mst = problem_instance
-        .try_get_mst_prim(1)
+        .try_get_mst_prim(1, ExecutionContext::default())
         .expect("failed to compute MST using Prim's algorithm");
     println!("Computing MST took {:.2?}", mst_time.elapsed());
 
@@ -269,7 +269,7 @@ fn test_boruvka() {
 
     let mst_time = Instant::now();
     let mst = problem_instance
-        .try_get_mst_boruvka()
+        .try_get_mst_boruvka(ExecutionContext::default())
         .expect("failed to compute MST using Borůvka's algorithm");
     println!("Computing MST took {:.2?}", mst_time.elapsed());
 
@@ -290,7 +290,7 @@ fn test_recursive_matcher() {
     let problem: TsplibInstance = tsp_instance.try_into().expect("failed to convert instance");
 
     let mst = problem
-        .try_get_mst_kruskal()
+        .try_get_mst_kruskal(ExecutionContext::default())
         .expect("failed to compute MST using Kruskal's algorithm");
 
     let odd_vertices = mst
@@ -337,7 +337,7 @@ fn test_edmonds_matcher() {
     let problem: TsplibInstance = tsp_instance.try_into().expect("failed to convert instance");
 
     let mst = problem
-        .try_get_mst_kruskal()
+        .try_get_mst_kruskal(ExecutionContext::default())
         .expect("failed to compute MST using Kruskal's algorithm");
 
     let odd_vertices = mst
