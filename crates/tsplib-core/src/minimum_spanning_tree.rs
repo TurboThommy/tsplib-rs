@@ -4,6 +4,7 @@
 
 use itertools::Itertools;
 
+use crate::context::ExecutionContext;
 use crate::enums::MstComputationError;
 use crate::models::{Edge, Graph, TsplibInstance};
 
@@ -88,7 +89,10 @@ impl UnionFind {
 ///
 /// # Returns
 /// * `Result<Graph, ConversionError>` - Graph struct containing the edges in the MST, or an error if the MST cannot be computed.
-pub fn try_get_mst_kruskal(tsplib_instance: &TsplibInstance) -> Result<Graph, MstComputationError> {
+pub fn try_get_mst_kruskal(
+    tsplib_instance: &TsplibInstance,
+    ctx: ExecutionContext,
+) -> Result<Graph, MstComputationError> {
     tracing::debug!(
         node_count = tsplib_instance.nodes.len(),
         edge_candidates = tsplib_instance.nodes.len() * (tsplib_instance.nodes.len() - 1) / 2,
@@ -104,9 +108,19 @@ pub fn try_get_mst_kruskal(tsplib_instance: &TsplibInstance) -> Result<Graph, Ms
     let edges = (0..(n - 1))
         .flat_map(|i| {
             ((i + 1)..n).map(move |j| {
+                // check for cancellation every 10_000 edges to avoid performance overhead
+                if j.is_multiple_of(10_000) && ctx.is_cancelled() {
+                    tracing::debug!(
+                        edge_candidates = n * (n - 1) / 2,
+                        "Kruskal's MST computation cancelled"
+                    );
+                    return Err(MstComputationError::MstCancelled);
+                }
+
                 tsplib_instance
                     .try_get_distance(i + 1, j + 1)
                     .map(|distance| (i + 1, j + 1, distance))
+                    .map_err(Into::into)
             })
         })
         .collect::<Result<Vec<_>, _>>()?
@@ -155,6 +169,7 @@ pub fn try_get_mst_kruskal(tsplib_instance: &TsplibInstance) -> Result<Graph, Ms
 pub fn try_get_mst_prim(
     tsplib_instance: &TsplibInstance,
     start_node: usize,
+    ctx: ExecutionContext,
 ) -> Result<Graph, MstComputationError> {
     tracing::debug!(
         node_count = tsplib_instance.nodes.len(),
@@ -184,6 +199,16 @@ pub fn try_get_mst_prim(
     best_weight[start_node - 1] = 0;
 
     for _ in 0..n {
+        // check for cancellation before each iteration, as Prim's algorithm can be expensive for large instances
+        if ctx.is_cancelled() {
+            tracing::debug!(
+                mst_edges = t.len(),
+                node_count = tsplib_instance.nodes.len(),
+                "Prim's MST computation cancelled"
+            );
+            return Err(MstComputationError::MstCancelled);
+        }
+
         // find the node u that is not yet in the MST and has the smallest best_weight
         let u = (0..n)
             .filter(|&v| !in_mst[v])
@@ -234,7 +259,10 @@ pub fn try_get_mst_prim(
 /// # Returns
 /// * `Result<Graph, ConversionError>` - Graph struct containing the edges in the MST,
 ///   or an error if the MST cannot be computed.
-pub fn try_get_mst_boruvka(tsplib_instance: &TsplibInstance) -> Result<Graph, MstComputationError> {
+pub fn try_get_mst_boruvka(
+    tsplib_instance: &TsplibInstance,
+    ctx: ExecutionContext,
+) -> Result<Graph, MstComputationError> {
     // helper function to update the cheapest edge for a given component
     fn update_cheapest(cheapest: &mut [Option<Edge>], root: usize, edge: Edge) {
         if cheapest[root].is_none_or(|current| edge.weight < current.weight) {
@@ -253,6 +281,15 @@ pub fn try_get_mst_boruvka(tsplib_instance: &TsplibInstance) -> Result<Graph, Ms
     let edges = (0..(n - 1))
         .flat_map(|i| {
             ((i + 1)..n).map(move |j| {
+                // check for cancellation every 10_000 edges to avoid performance overhead
+                if j.is_multiple_of(10_000) && ctx.is_cancelled() {
+                    tracing::debug!(
+                        edge_candidates = n * (n - 1) / 2,
+                        "Borůvka's MST computation cancelled"
+                    );
+                    return Err(MstComputationError::MstCancelled);
+                }
+
                 tsplib_instance
                     .try_get_distance(i + 1, j + 1)
                     .map(|distance| Edge {
@@ -260,6 +297,7 @@ pub fn try_get_mst_boruvka(tsplib_instance: &TsplibInstance) -> Result<Graph, Ms
                         v: j + 1,
                         weight: distance,
                     })
+                    .map_err(Into::into)
             })
         })
         .collect::<Result<Vec<_>, _>>()?;

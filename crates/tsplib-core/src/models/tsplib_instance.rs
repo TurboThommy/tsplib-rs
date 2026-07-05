@@ -76,8 +76,8 @@ impl TsplibInstance {
     ///
     /// # Returns
     /// * `Result<Graph, ConversionError>` - Graph struct containing the edges in the MST, or an error if the MST cannot be computed.
-    pub fn try_get_mst_kruskal(&self) -> Result<Graph, MstComputationError> {
-        try_get_mst_kruskal(self)
+    pub fn try_get_mst_kruskal(&self, ctx: ExecutionContext) -> Result<Graph, MstComputationError> {
+        try_get_mst_kruskal(self, ctx)
     }
 
     /// Tries to compute the minimum spanning tree (MST) of the TSP instance using Prim's algorithm starting from a specified node.
@@ -88,16 +88,20 @@ impl TsplibInstance {
     /// # Returns
     /// * `Result<Graph, ConversionError>` - Graph struct containing the edges in the MST,
     ///   or an error if the adjacency matrix is empty or the start node is invalid.
-    pub fn try_get_mst_prim(&self, start_node: usize) -> Result<Graph, MstComputationError> {
-        try_get_mst_prim(self, start_node)
+    pub fn try_get_mst_prim(
+        &self,
+        start_node: usize,
+        ctx: ExecutionContext,
+    ) -> Result<Graph, MstComputationError> {
+        try_get_mst_prim(self, start_node, ctx)
     }
 
     /// Tries to compute the minimum spanning tree (MST) of the TSP instance using Borůvka's algorithm.
     ///
     /// # Returns
     /// * `Result<Graph, ConversionError>` - Graph struct containing the edges in the MST, or an error if the MST cannot be computed.
-    pub fn try_get_mst_boruvka(&self) -> Result<Graph, MstComputationError> {
-        try_get_mst_boruvka(self)
+    pub fn try_get_mst_boruvka(&self, ctx: ExecutionContext) -> Result<Graph, MstComputationError> {
+        try_get_mst_boruvka(self, ctx)
     }
 }
 

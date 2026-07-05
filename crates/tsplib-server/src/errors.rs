@@ -32,6 +32,8 @@ pub enum ServerError {
     InvalidProblemId(String),
     #[error("Problem instance with ID {0} already exists")]
     ProblemInstanceAlreadyExists(String),
+    #[error("Processing task was aborted: system memory utilization exceeded the safety threshold")]
+    ResourceLimitExceeded,
 }
 
 impl IntoResponse for ServerError {
@@ -87,6 +89,10 @@ impl IntoResponse for ServerError {
             ServerError::ProblemInstanceAlreadyExists(_) => {
                 tracing::error!(error = %self, "Problem instance already exists");
                 (StatusCode::CONFLICT, self.to_string())
+            }
+            ServerError::ResourceLimitExceeded => {
+                tracing::error!(error = %self, "Processing task aborted due to exceeding the resource limit");
+                (StatusCode::SERVICE_UNAVAILABLE, self.to_string())
             }
         };
         (status, error_message).into_response()

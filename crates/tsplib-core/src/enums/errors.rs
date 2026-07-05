@@ -87,6 +87,9 @@ pub enum MstComputationError {
 
     #[error("Borůvka's algorithm failed: {0}")]
     BoruvkaMstError(String),
+
+    #[error("MST computation was cancelled before the algorithm could complete.")]
+    MstCancelled,
 }
 
 impl From<InstanceError> for MstComputationError {

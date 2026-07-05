@@ -1,5 +1,11 @@
 //! Handlers for the REST API routes related to solvers.
-use std::time::Instant;
+use std::{
+    sync::{
+        Arc,
+        atomic::{AtomicBool, Ordering},
+    },
+    time::Instant,
+};
 
 use axum::{
     Json, Router,
@@ -18,6 +24,7 @@ use tsplib_solver::{
 use crate::{
     errors::ServerError,
     models::{requests::StartSolverRequest, responses::StartSolverResponse},
+    monitor,
     state::{AppState, ProcessingState},
 };
 
@@ -119,6 +126,8 @@ async fn start_solver(
     let token = CancellationToken::new();
     // create a second handle for the cancellation token to pass to the solver task
     let task_token = token.clone();
+    // create a third handle for the cancellation token to pass to the resource guard
+    let guard_token = token.clone();
 
     tracing::debug!(
         solver_algorithm = ?request.algorithm,
@@ -142,6 +151,13 @@ async fn start_solver(
         )
     });
 
+    let resource_tripped = Arc::new(AtomicBool::new(false));
+    let guard = monitor::spawn_memory_guard(
+        guard_token,
+        monitor::MEMORY_ABORT_THRESHOLD,
+        resource_tripped.clone(),
+    );
+
     tracing::debug!("Solver task spawned, updating app state");
     *solver_state = ProcessingState::Processing(token);
     drop(solver_state);
@@ -150,6 +166,9 @@ async fn start_solver(
     // wait for the solver to finish and get the result
     tracing::debug!("Waiting for solver task to complete");
     let result = handle.await;
+
+    // solver has returned, stop resource guard
+    guard.abort();
 
     // log the elapsed time for the solver task
     let elapsed_time = start_time.elapsed();
@@ -167,6 +186,7 @@ async fn start_solver(
                 elapsed_time,
             )))
         }
+        _ if resource_tripped.load(Ordering::SeqCst) => Err(ServerError::ResourceLimitExceeded),
         Ok(Err(e)) => Err(e),
         Err(e) if e.is_cancelled() => Err(ServerError::ProcessingCancelled),
         Err(e) => Err(ServerError::from(e)),
