@@ -3,18 +3,18 @@
 Rust backend for parsing, viewing, and solving symmetric TSPLIB instances of
 the Travelling Salesman Problem. Exposes a small REST API (axum) over the
 problem instances in `./data` and implements MST, minimum-weight perfect
-matching, and full TSP solvers (Greedy, Held–Karp, Christofides).
+matching, and full TSP solvers (Greedy, Held–Karp, Christofides, Linear Programming).
 
 ## Workspace layout
 
-| Crate                | Purpose                                                            |
-| -------------------- | ------------------------------------------------------------------ |
-| `tsplib-core`        | Core models, TSPLIB distance functions, MST, graph types          |
-| `tsplib-parser`      | Parser for the TSPLIB `.tsp` file format                          |
-| `tsplib-solver`      | Solvers (Greedy, Held–Karp, Christofides) and matchers (MWPM)      |
-| `tsplib-server`      | REST API over the instances in `./data`                            |
-| `tsplib-dev-runner`  | Local harness for benchmarking/validating solvers and matchers     |
-| `blossom-v` / `-sys` | Optional FFI bindings to Blossom V (excluded from the workspace)   |
+| Crate                | Purpose                                                                                |
+| -------------------- | -------------------------------------------------------------------------------------- |
+| `tsplib-core`        | Core models, TSPLIB distance functions, MST, graph types                               |
+| `tsplib-parser`      | Parser for the TSPLIB `.tsp` file format                                               |
+| `tsplib-solver`      | Solvers (Greedy, Held–Karp, Christofides, Linear Programming) and matchers (MWPM)      |
+| `tsplib-server`      | REST API over the instances in `./data`                                                |
+| `tsplib-dev-runner`  | Local harness for benchmarking/validating solvers and matchers                         |
+| `blossom-v` / `-sys` | Optional FFI bindings to Blossom V (excluded from the workspace)                       |
 
 ## Requirements
 
@@ -108,12 +108,6 @@ Additionally it is possible to provide solver options:
 IMPORTANT: The `definition` has to be a valid JSON string (e.g. created by JSON.stringify when using JavaScript)!
 
 ## Development
-
-Run the test suite:
-
-```sh
-cargo test
-```
 
 The `tsplib-dev-runner` crate is a local harness for validating and comparing
 solvers and matchers (e.g. the weighted Edmonds matcher against Blossom V):
